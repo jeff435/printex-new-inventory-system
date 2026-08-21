@@ -1,0 +1,375 @@
+/* ============================================================
+   PRINTEX — V2 DESIGN TOKENS
+   New light e-commerce theme (white/gray surfaces, black CTAs,
+   single green accent). Lives alongside the old olive "glass"
+   theme in globals.css until every page is migrated — do not
+   delete globals.css tokens until ConditionalShell/Navbar/etc.
+   are all switched over to v2 components.
+   ============================================================ */
+
+:root {
+    /* Surfaces */
+    --v2-bg: #ECEEF4;
+    --v2-surface: #FFFFFF;
+    --v2-surface-muted: #F0F1F3;
+    --v2-border: #E6E8EB;
+    --v2-border-hover: #D5D8DC;
+
+    /* Text */
+    --v2-text: #14151A;
+    --v2-text-muted: #6B7078;
+    --v2-text-faint: #9CA0A8;
+
+    /* Accent — used sparingly (badges, links, discount tags).
+       Sampled from the reference mockup: the "delivered fresh." headline is a
+       deep forest green, considerably darker than the mid-green used before. */
+    --v2-accent: #0C5A16;
+    --v2-accent-mid: #2F8F4E;
+    --v2-accent-dark: #14532B;
+    --v2-accent-bg: #EAF6EE;
+
+    /* Primary CTA — solid black, per screenshot */
+    --v2-cta-bg: #14151A;
+    --v2-cta-bg-hover: #2A2C33;
+    --v2-cta-text: #FFFFFF;
+
+    /* Deal / discount red */
+    --v2-deal: #E53E3B;
+    --v2-deal-bg: #FDEBEA;
+
+    /* Star rating gold */
+    --v2-star: #F6BC18;
+
+    /* Neutral chip — countdown segments, small inline stats */
+    --v2-chip-bg: #E8E9EC;
+
+    /* Shadows */
+    --v2-shadow-sm: 0 1px 3px rgba(20, 21, 26, 0.06);
+    --v2-shadow-md: 0 4px 16px rgba(20, 21, 26, 0.08);
+    --v2-shadow-lg: 0 12px 32px rgba(20, 21, 26, 0.12);
+
+    /* Radii */
+    --v2-radius-sm: 0.5rem;
+    --v2-radius-md: 0.875rem;
+    --v2-radius-lg: 1.5rem;
+    --v2-radius-full: 999px;
+}
+
+/* ── Base surfaces ─────────────────────────────────────────── */
+.v2-page {
+    background: var(--v2-bg);
+    color: var(--v2-text);
+}
+
+/* .v2-card's background/border/blur/shadow/radius all live in the
+   "Card family" block in globals.css (shared with product cards,
+   tiles, and the promo card) via the unified --glass-* tokens, so
+   this file no longer overrides radius here — that previously
+   silently fought the glass styling since this file loads after
+   globals.css. */
+
+/* ── Buttons ───────────────────────────────────────────────── */
+.v2-btn-primary {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: linear-gradient(180deg, var(--cta-fill-top) 0%, var(--cta-fill-bottom) 100%);
+    color: var(--v2-cta-text);
+    font-weight: 600;
+    border-radius: var(--glass-radius-pill);
+    padding: 0.875rem 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        var(--cta-inset-highlight),
+        var(--glass-shadow-ambient),
+        var(--glass-shadow-contact);
+    overflow: hidden;
+    transition: filter 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.v2-btn-primary::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--cta-sheen);
+    pointer-events: none;
+}
+
+.v2-btn-primary:hover {
+    filter: brightness(1.12);
+    transform: translateY(-1px);
+    box-shadow:
+        var(--cta-inset-highlight),
+        0 12px 28px rgba(0, 0, 0, 0.09),
+        var(--glass-shadow-contact);
+}
+
+.v2-btn-primary:active {
+    transform: scale(0.98);
+}
+
+/* Secondary + add-to-cart buttons — glossy white pill, diagonal sheen
+   rather than a vertical fade, matching the reference's polished-glass
+   buttons. Sizing/padding untouched — only background/border/shadow. */
+.v2-btn-secondary,
+.v2-btn-add {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.55) 45%, rgba(255, 255, 255, 0.9) 100%);
+    color: var(--v2-text);
+    font-weight: 600;
+    border: 1.5px solid rgba(255, 255, 255, 0.98);
+    border-radius: var(--glass-radius-pill);
+    -webkit-backdrop-filter: blur(22px) saturate(260%);
+    backdrop-filter: blur(22px) saturate(260%);
+    box-shadow:
+        inset 0 2px 2px #ffffff,
+        inset 0 -1.5px 1.5px rgba(255, 255, 255, 0.85),
+        0 0 0 1px rgba(255, 255, 255, 0.8),
+        0 4px 14px rgba(18, 28, 48, 0.06);
+    transition: box-shadow 0.2s ease, transform 0.15s ease, background 0.2s ease;
+}
+
+.v2-btn-secondary {
+    gap: 0.5rem;
+    padding: 0.875rem 1.5rem;
+}
+
+.v2-btn-secondary:hover,
+.v2-btn-add:hover {
+    background: #ffffff;
+    box-shadow:
+        inset 0 2.5px 2px #ffffff,
+        inset 0 -2px 2px rgba(255, 255, 255, 1),
+        0 0 0 1px #ffffff,
+        0 8px 24px rgba(18, 28, 48, 0.12);
+    transform: translateY(-1.5px);
+}
+
+.v2-btn-add {
+    gap: 0.3125rem;
+    font-size: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    white-space: nowrap;
+}
+
+/* ── Badges ────────────────────────────────────────────────── */
+.v2-badge-deal {
+    display: inline-flex;
+    align-items: center;
+    background: linear-gradient(180deg, rgba(255, 107, 92, 0.9) 0%, rgba(225, 72, 61, 0.9) 100%);
+    color: white;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    border-radius: var(--glass-radius-pill);
+    padding: 0.125rem 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    backdrop-filter: blur(12px) saturate(150%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 3px 8px rgba(225, 72, 61, 0.35);
+}
+
+/* Soft variant — white pill, red ink (the "Flash Sale" tag in the reference).
+   This has to be its own class rather than a `!bg-` utility on .v2-badge-deal:
+   that base class paints with a `background` *gradient*, and a background-color
+   utility can't override a gradient, so the old approach silently did nothing. */
+.v2-badge-deal-soft {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.82) 100%);
+    color: var(--v2-deal);
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: var(--glass-radius-pill);
+    padding: 0.25rem 0.6875rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.98);
+    -webkit-backdrop-filter: blur(20px) saturate(200%);
+    backdrop-filter: blur(20px) saturate(200%);
+    box-shadow:
+        inset 0 2px 1.5px #ffffff,
+        inset 0 -1.5px 1px rgba(255, 255, 255, 0.8),
+        0 0 0 1px rgba(255, 255, 255, 0.7),
+        0 2px 8px rgba(18, 28, 48, 0.05);
+}
+
+/* Promo-code style badge — bright green pill, matching the reference's
+   coupon/code chips. Not yet wired to a component; included so it's ready
+   the moment one needs it. */
+.v2-badge-promo-code {
+    display: inline-flex;
+    align-items: center;
+    background: linear-gradient(135deg, rgba(226, 250, 234, 0.98) 0%, rgba(210, 245, 222, 0.88) 100%);
+    color: #166534;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    border-radius: var(--glass-radius-pill);
+    padding: 0.3rem 0.85rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.98);
+    box-shadow:
+        inset 0 2px 1.5px #ffffff,
+        0 2px 8px rgba(22, 101, 52, 0.1);
+}
+
+/* Neutral countdown segment — light chip, dark numerals. */
+.v2-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    background: var(--v2-chip-bg);
+    color: var(--v2-text);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    border-radius: 0.5rem;
+    padding: 0.1875rem 0.4375rem;
+}
+
+/* Circular chip that wraps the arrow inside a dark CTA pill. */
+.v2-cta-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    flex-shrink: 0;
+    border-radius: var(--glass-radius-pill);
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.v2-badge-accent {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: linear-gradient(135deg, rgba(238, 248, 241, 0.98) 0%, rgba(230, 245, 235, 0.88) 100%);
+    color: var(--v2-accent-dark);
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: var(--glass-radius-pill);
+    padding: 0.25rem 0.75rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.95);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    box-shadow:
+        inset 0 2px 1.5px #ffffff,
+        0 2px 8px rgba(20, 83, 43, 0.08);
+}
+
+/* ── Inputs (search bar, filters) ─────────────────────────── */
+.v2-input {
+    background: var(--v2-surface-muted);
+    border: 1px solid transparent;
+    color: var(--v2-text);
+    border-radius: var(--v2-radius-sm);
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.v2-input::placeholder {
+    color: var(--v2-text-faint);
+}
+
+.v2-input:focus {
+    outline: none;
+    background: var(--v2-surface);
+    border-color: var(--v2-border-hover);
+    box-shadow: 0 0 0 3px rgba(20, 21, 26, 0.06);
+}
+
+/* ── Text helpers ──────────────────────────────────────────── */
+.v2-text-muted {
+    color: var(--v2-text-muted);
+}
+
+.v2-text-faint {
+    color: var(--v2-text-faint);
+}
+
+.v2-text-accent {
+    color: var(--v2-accent);
+}
+
+.v2-text-deal {
+    color: var(--v2-deal);
+}
+
+.v2-price-strike {
+    color: var(--v2-text-faint);
+    text-decoration: line-through;
+}
+
+/* ── Nav ───────────────────────────────────────────────────── */
+.v2-nav {
+    background: var(--v2-surface);
+    border-bottom: 1px solid var(--v2-border);
+}
+
+/* ── Sidebar ───────────────────────────────────────────────── */
+.v2-sidebar-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: var(--v2-radius-sm);
+    padding: 0.8125rem 1rem;
+    color: var(--v2-text);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    transition: background 0.15s ease;
+}
+
+.v2-sidebar-item:hover {
+    background: var(--v2-surface-muted);
+}
+
+/* Active row and the "View all" row both read as raised white cards lifted off
+   the sidebar panel, not just a tint. */
+.v2-sidebar-item-active,
+.v2-sidebar-item-raised {
+    background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.65) 50%, rgba(255, 255, 255, 0.95) 100%);
+    border: 1.5px solid rgba(255, 255, 255, 0.98);
+    border-radius: 0.95rem;
+    box-shadow:
+        inset 0 2px 2px #ffffff,
+        inset 0 -1.5px 1.5px rgba(255, 255, 255, 0.85),
+        0 0 0 1px rgba(255, 255, 255, 0.8),
+        0 4px 14px rgba(18, 28, 48, 0.06),
+        0 1px 3px rgba(18, 28, 48, 0.03);
+}
+
+.v2-sidebar-item-active {
+    font-weight: 700;
+}
+
+.v2-sidebar-item-active:hover,
+.v2-sidebar-item-raised:hover {
+    background: #fff;
+}
+
+.v2-sidebar-item-active .v2-text-muted,
+.v2-sidebar-item-active svg {
+    color: var(--v2-text);
+}
+
+/* ── Discount badge sphere ─────────────────────────────────────
+   Circular glass badge used for large "% OFF" callouts (hero,
+   promo card). 3D glass-sphere treatment: green radial core, a
+   bright top inset rim and a dark inset shadow along the bottom
+   for volume, blurred edge so it reads as sitting slightly above
+   the surface it's on. Not yet wired to a component; included so
+   it's ready the moment one needs it. */
+.hero-discount-badge {
+    background:
+        radial-gradient(circle at 30% 25%, rgba(110, 195, 135, 0.98) 0%, rgba(45, 130, 72, 0.92) 50%, rgba(20, 75, 40, 0.98) 100%);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    box-shadow:
+        inset 0 3px 6px rgba(255, 255, 255, 0.9),
+        inset 0 -3px 6px rgba(0, 0, 0, 0.4),
+        0 12px 30px rgba(25, 85, 45, 0.45);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+}

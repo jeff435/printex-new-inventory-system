@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: printex-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: printex_db
+    ports:
+      # Exposed so you can connect with pgAdmin/DBeaver from Windows.
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The backend must not start until Postgres is genuinely accepting
+      # connections. Without this it races the DB on a cold boot and crashes
+      # on the first query.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d printex_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: printex-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: printex-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      # Inside the compose network, services reach each other by service name,
+      # not localhost. These override whatever is in .env so the container
+      # always talks to the right host even if .env was written for bare-metal.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/printex_db
+      DATABASE_URL_SYNC: postgresql://postgres:postgres@db:5432/printex_db
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      # Live reload — your edits on the host appear in the container.
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build: ./frontend
+    container_name: printex-frontend
+    restart: unless-stopped
+    environment:
+      # This is baked into the browser bundle, so it must be a URL the
+      # BROWSER can reach — localhost, not the compose service name.
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      # Anonymous volumes: keep the container's own node_modules and .next
+      # instead of letting the host directory mask them. Without these, a
+      # Windows-installed node_modules shadows the Linux one and native
+      # binaries fail to load.
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  redisdata:

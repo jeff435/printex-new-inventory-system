@@ -1,0 +1,120 @@
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.utils import get_column_letter
+
+
+HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+HEADER_FONT = Font(color="FFFFFF", bold=True)
+
+
+def _style_header(ws, row=1, ncols=1):
+    for col in range(1, ncols + 1):
+        cell = ws.cell(row=row, column=col)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = Alignment(horizontal="center")
+
+
+def render_analytics_excel(
+    summary: dict,
+    stock_movements: list,
+    top_parts: list,
+) -> bytes:
+    """summary: dict of AnalyticsSummary fields.
+    stock_movements: list of dicts (from StockMovementOut).
+    top_parts: list of dicts (from TopPartRow), assumed already sorted desc."""
+    wb = Workbook()
+
+    # ── Summary sheet ────────────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["Metric", "Value"])
+    _style_header(ws, ncols=2)
+    rows = [
+        ("Total parts tracked", summary.get("total_parts", 0)),
+        ("Low stock parts", summary.get("low_stock_parts", 0)),
+        ("Out of stock parts", summary.get("out_of_stock_parts", 0)),
+        ("Total stock value (KES)", float(summary.get("total_stock_value", 0))),
+        ("Goods received qty (period)", summary.get("goods_received_qty", 0)),
+        ("Goods received value (KES)", float(summary.get("goods_received_value", 0))),
+        ("Sales qty (period)", summary.get("sales_qty", 0)),
+        ("Sales value (KES)", float(summary.get("sales_value", 0))),
+        ("Total purchases value (KES)", float(summary.get("total_purchases_value", 0))),
+        ("Total expenses (KES)", float(summary.get("total_expenses", 0))),
+        ("Net stock movement value (KES)", float(summary.get("net_movement_value", 0))),
+    ]
+    for label, value in rows:
+        ws.append([label, value])
+    for col, width in zip("AB", (34, 20)):
+        ws.column_dimensions[col].width = width
+
+    # Bar chart: received vs sold vs expenses vs purchases value
+    chart_data_ws = wb.create_sheet("ChartData")
+    chart_data_ws.append(["Category", "Value (KES)"])
+    chart_rows = [
+        ("Goods Received", float(summary.get("goods_received_value", 0))),
+        ("Sales", float(summary.get("sales_value", 0))),
+        ("Purchases", float(summary.get("total_purchases_value", 0))),
+        ("Expenses", float(summary.get("total_expenses", 0))),
+    ]
+    for label, value in chart_rows:
+        chart_data_ws.append([label, value])
+
+    bar = BarChart()
+    bar.title = "Value by Category (KES)"
+    bar.y_axis.title = "KES"
+    bar.x_axis.title = "Category"
+    data_ref = Reference(chart_data_ws, min_col=2, min_row=1,
+                          max_row=1 + len(chart_rows))
+    cats_ref = Reference(chart_data_ws, min_col=1, min_row=2,
+                          max_row=1 + len(chart_rows))
+    bar.add_data(data_ref, titles_from_data=True)
+    bar.set_categories(cats_ref)
+    bar.width, bar.height = 18, 10
+    ws.add_chart(bar, "D2")
+
+    # ── Top moving parts sheet (with its own bar chart) ─────────────────
+    ws2 = wb.create_sheet("Top Moving Parts")
+    ws2.append(["SKU", "Product", "Qty Moved", "Value Moved (KES)"])
+    _style_header(ws2, ncols=4)
+    for row in top_parts:
+        ws2.append([
+            row.get("sku", ""), row.get("product_name", ""),
+            row.get("quantity_moved", 0), float(row.get("value_moved", 0)),
+        ])
+    for col, width in zip("ABCD", (16, 36, 12, 18)):
+        ws2.column_dimensions[col].width = width
+
+    if top_parts:
+        n = len(top_parts)
+        bar2 = BarChart()
+        bar2.title = "Top Moving Parts by Quantity"
+        bar2.y_axis.title = "Qty Moved"
+        data_ref2 = Reference(ws2, min_col=3, min_row=1, max_row=1 + n)
+        cats_ref2 = Reference(ws2, min_col=2, min_row=2, max_row=1 + n)
+        bar2.add_data(data_ref2, titles_from_data=True)
+        bar2.set_categories(cats_ref2)
+        bar2.width, bar2.height = 18, 10
+        ws2.add_chart(bar2, "F2")
+
+    # ── Raw stock movement ledger sheet ──────────────────────────────────
+    ws3 = wb.create_sheet("Stock Movements")
+    headers = ["Date", "Product ID", "Branch ID", "Qty Delta",
+               "Qty After", "Reason", "Reference", "User ID", "Note"]
+    ws3.append(headers)
+    _style_header(ws3, ncols=len(headers))
+    for m in stock_movements:
+        ws3.append([
+            str(m.get("created_at", "")), m.get("product_id", ""),
+            m.get("branch_id", ""), m.get("quantity_delta", 0),
+            m.get("quantity_after", 0), m.get("reason", ""),
+            m.get("reference", ""), m.get("user_id", ""), m.get("note", ""),
+        ])
+    for i, header in enumerate(headers, start=1):
+        ws3.column_dimensions[get_column_letter(i)].width = max(14, len(header) + 4)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

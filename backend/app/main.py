@@ -1,0 +1,99 @@
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.config import settings
+from app.database import create_tables
+from app.core.redis import get_redis, redis_close
+from app.core.exceptions import AppException, app_exception_handler
+# Routers
+from app.auth.router import router as auth_router
+from app.products.router import router as products_router
+from app.products.router import inventory_router, categories_router, brands_router
+from app.orders.router import router as orders_router
+from app.payments.router import router as payments_router
+from app.loyalty.router import router as loyalty_router
+from app.wallet.router import router as wallet_router
+from app.favorites.router import router as favorites_router
+from app.ratings.router import router as ratings_router
+from app.delivery.router import router as delivery_router
+from app.branches.router import router as branches_router
+from app.uploads.router import router as uploads_router
+from app.chat.router import router as chat_router
+from app.proforma.router import router as proforma_router
+
+# Model registration — these modules define tables but expose no router yet.
+# They must still be imported before create_tables() so SQLAlchemy registers
+# them on Base.metadata and can resolve relationships that point at them
+# (Order.customer would fail to configure otherwise).
+from app.customers import models as _customer_models  # noqa: F401
+from app.products import models as _product_models    # noqa: F401
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🚀 Starting Printex Engineers API...")
+    if settings.APP_ENV == "development":
+        await create_tables()
+    await get_redis()
+    print("✅ Ready")
+    yield
+    await redis_close()
+    print("🛑 Shutdown complete")
+
+app = FastAPI(
+    title="Printex Engineers API",
+    description="Printing press spare parts e-commerce and inventory management platform",
+    version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan,
+)
+
+# ── Middleware ────────────────────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Exception handlers ────────────────────────────────────────────────────────
+app.add_exception_handler(AppException, app_exception_handler)
+
+# ── Routers ───────────────────────────────────────────────────────────────────
+API_PREFIX = "/api/v1"
+app.include_router(auth_router,       prefix=API_PREFIX)
+app.include_router(categories_router, prefix=API_PREFIX)
+app.include_router(brands_router,     prefix=API_PREFIX)
+app.include_router(products_router,   prefix=API_PREFIX)
+app.include_router(inventory_router,  prefix=API_PREFIX)
+app.include_router(orders_router,     prefix=API_PREFIX)
+app.include_router(payments_router,   prefix=API_PREFIX)
+app.include_router(loyalty_router,    prefix=API_PREFIX)
+app.include_router(wallet_router,     prefix=API_PREFIX)
+app.include_router(favorites_router,  prefix=API_PREFIX)
+app.include_router(ratings_router,    prefix=API_PREFIX)
+app.include_router(delivery_router,   prefix=API_PREFIX)
+app.include_router(branches_router,   prefix=API_PREFIX)
+app.include_router(uploads_router,    prefix=API_PREFIX)
+app.include_router(chat_router, prefix=API_PREFIX)
+app.include_router(proforma_router, prefix=API_PREFIX)
+
+# ── Health check ──────────────────────────────────────────────────────────────
+
+
+@app.get("/health", tags=["Health"])
+async def health():
+    return {"status": "ok", "env": settings.APP_ENV, "version": "1.0.0"}
+
+
+@app.get(f"{API_PREFIX}/health", tags=["Health"])
+async def health_v1():
+    return {"status": "ok", "env": settings.APP_ENV, "version": "1.0.0"}
+
+
+@app.get("/", tags=["Health"])
+async def root():
+    return {"name": settings.APP_NAME, "docs": "/api/docs", "health": "/health"}

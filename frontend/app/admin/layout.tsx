@@ -19,7 +19,7 @@ const NAV: NavItem[] = [
     { href: "/admin", label: "Overview", icon: LayoutDashboard, roles: ["super_admin", "director", "secretary"] },
     { href: "/admin/orders", label: "Orders", icon: ClipboardList, roles: ["super_admin", "director"] },
     { href: "/admin/products", label: "Products", icon: Package, roles: ["super_admin", "director"] },
-    { href: "/admin/categories", label: "Categories", icon: Tags, roles: ["super_admin"] },
+    { href: "/admin/categories", label: "Categories", icon: Tags, roles: ["super_admin", "director"] },
     { href: "/admin/inventory", label: "Inventory", icon: Warehouse, roles: ["super_admin", "director"] },
     { href: "/admin/proforma-invoices", label: "Proforma Invoices", icon: FileText, roles: ["super_admin", "director", "secretary"] },
     { href: "/admin/purchases", label: "Purchases & Expenses", icon: Receipt, roles: ["super_admin", "director"] },

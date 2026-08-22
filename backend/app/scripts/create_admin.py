@@ -25,6 +25,13 @@ from sqlalchemy import select, or_
 from app.database import AsyncSessionLocal
 from app.auth.models import User, UserRole
 from app.core.security import hash_password
+# Not used directly here, but importing it registers the `Order` class with
+# SQLAlchemy's declarative registry. User declares relationship("Order", ...)
+# as a string, only resolvable once app.orders.models has been imported
+# somewhere in the process — without this, the first query against User
+# throws:
+#   sqlalchemy.exc.InvalidRequestError: ... failed to locate a name ('Order')
+from app.orders import models as _orders_models  # noqa: F401
 
 
 async def create_admin(name: str, phone: str | None, email: str | None, password: str):

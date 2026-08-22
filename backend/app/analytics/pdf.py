@@ -153,6 +153,9 @@ def render_summary_pdf(summary) -> bytes:
 def datetime_now_str() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).strftime("%d %b %Y %H:%M")
+
+
+def render_customer_purchases_pdf(rows) -> bytes:
     """rows: list of app.analytics.schemas.CustomerPurchaseRow"""
     buf = io.BytesIO()
     styles = getSampleStyleSheet()

@@ -18,8 +18,6 @@ from app.purchases.schemas import (
     ExpenseCreate, ExpenseOut,
 )
 from app.products.models import Product, InventoryItem, StockMovement, StockMovementReason
-from app.proforma.service import create_proforma_record
-from app.proforma.models import ProformaStatus
 
 router = APIRouter(prefix="/purchases", tags=["Purchases"])
 suppliers_router = APIRouter(prefix="/suppliers", tags=["Suppliers"])
@@ -162,10 +160,7 @@ async def receive_purchase(
     purchase's branch and writes a StockMovement (GOODS_RECEIVED) for each."""
     result = await db.execute(
         select(Purchase).where(Purchase.id == purchase_id)
-        .options(
-            selectinload(Purchase.items).selectinload(PurchaseItem.product),
-            selectinload(Purchase.supplier),
-        )
+        .options(selectinload(Purchase.items))
     )
     purchase = result.scalar_one_or_none()
     if not purchase:
@@ -209,34 +204,6 @@ async def receive_purchase(
     purchase.status = PurchaseStatus.RECEIVED
     purchase.received_at = datetime.now(timezone.utc)
     await db.commit()
-
-    # Every completed purchase gets its own proforma invoice automatically —
-    # a permanent record of the restock, showing each part received, with
-    # VAT fixed at 16%. Best-effort: a failure here should never undo the
-    # stock that was just received.
-    try:
-        lines = [{
-            "product_id": item.product_id,
-            "description": (
-                f"{item.product.name} (Part #{item.product.part_number})"
-                if item.product and item.product.part_number
-                else (item.product.name if item.product else "Part")
-            ),
-            "quantity": item.quantity,
-            "unit_price_kes": int(round(float(item.unit_cost) * 100)),
-        } for item in purchase.items]
-
-        await create_proforma_record(
-            db,
-            created_by_id=current_user.id,
-            customer_name=f"Supplier: {purchase.supplier.name}" if purchase.supplier else "Supplier restock",
-            branch_id=purchase.branch_id,
-            lines=lines,
-            status=ProformaStatus.CONVERTED,
-            notes=f"Auto-generated on receiving purchase {purchase.purchase_number}.",
-        )
-    except Exception:
-        pass
 
     result = await db.execute(
         select(Purchase).where(Purchase.id == purchase_id)

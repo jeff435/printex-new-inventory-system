@@ -7,7 +7,7 @@ import Link from "next/link";
 import {
     LayoutDashboard, ClipboardList, Package, Tags,
     Warehouse, Users, GitBranch, LogOut, Menu, ChevronRight,
-    UserCog, Contact, FileText, Settings,
+    UserCog, Contact, FileText, Settings, Receipt,
 } from "lucide-react";
 
 // Printex is a staff-only inventory system for exactly three roles.
@@ -18,10 +18,11 @@ type NavItem = { href: string; label: string; icon: React.ElementType; roles: st
 const NAV: NavItem[] = [
     { href: "/admin", label: "Overview", icon: LayoutDashboard, roles: ["super_admin", "director", "secretary"] },
     { href: "/admin/orders", label: "Orders", icon: ClipboardList, roles: ["super_admin", "director"] },
-    { href: "/admin/products", label: "Products", icon: Package, roles: ["super_admin", "director", "secretary"] },
-    { href: "/admin/categories", label: "Categories", icon: Tags, roles: ["super_admin", "director", "secretary"] },
-    { href: "/admin/inventory", label: "Inventory", icon: Warehouse, roles: ["super_admin", "director", "secretary"] },
+    { href: "/admin/products", label: "Products", icon: Package, roles: ["super_admin", "director"] },
+    { href: "/admin/categories", label: "Categories", icon: Tags, roles: ["super_admin"] },
+    { href: "/admin/inventory", label: "Inventory", icon: Warehouse, roles: ["super_admin", "director"] },
     { href: "/admin/proforma-invoices", label: "Proforma Invoices", icon: FileText, roles: ["super_admin", "director", "secretary"] },
+    { href: "/admin/purchases", label: "Purchases & Expenses", icon: Receipt, roles: ["super_admin", "director"] },
     { href: "/admin/users", label: "Users", icon: Users, roles: ["super_admin"] },
     { href: "/admin/branches", label: "Branches", icon: GitBranch, roles: ["super_admin"] },
     { href: "/admin/directors", label: "Directors", icon: UserCog, roles: ["super_admin"] },

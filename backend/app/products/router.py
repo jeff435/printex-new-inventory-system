@@ -7,7 +7,7 @@ import uuid
 from slugify import slugify
 
 from app.database import get_db
-from app.core.deps import get_current_user, get_current_user_optional, require_manager, require_manager_or_director, require_manager_or_staff
+from app.core.deps import get_current_user, get_current_user_optional, require_manager, require_manager_or_director
 from app.core.exceptions import NotFoundError, ConflictError, ValidationError
 from app.products.models import Product, ProductStatus, Category, Brand, InventoryItem, StockStatus
 from app.products.schemas import (
@@ -40,7 +40,7 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
 async def create_category(
     body: CategoryCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     slug = body.slug.strip() if body.slug else slugify(body.name)
     existing = await db.execute(select(Category).where(Category.slug == slug))
@@ -72,7 +72,7 @@ async def update_category(
     category_id: str,
     body: CategoryUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     cat = await db.get(Category, category_id)
     if not cat:
@@ -95,7 +95,7 @@ async def update_category(
 async def delete_category(
     category_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     cat = await db.get(Category, category_id)
     if not cat:
@@ -118,7 +118,7 @@ async def list_brands(db: AsyncSession = Depends(get_db)):
 async def create_brand(
     body: BrandCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     slug = body.slug.strip() if body.slug else slugify(body.name)
     existing = await db.execute(select(Brand).where(Brand.slug == slug))
@@ -151,8 +151,7 @@ async def list_products(
     limit: int = Query(24, ge=1, le=100),
 ):
     is_manager = current_user is not None and current_user.role in (
-        UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER,
-        UserRole.DIRECTOR, UserRole.SECRETARY,
+        UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER
     )
 
     query = select(Product).options(
@@ -196,14 +195,7 @@ async def list_products(
     products = result.scalars().all()
 
     return {
-        "items": [
-            ProductListItem.model_validate({
-                **{c.name: getattr(p, c.name) for c in p.__table__.columns},
-                "category_id": p.category_id,
-                "category_name": p.category.name if p.category else None,
-            })
-            for p in products
-        ],
+        "items": [ProductListItem.model_validate(p) for p in products],
         "total": total,
         "page": page,
         "limit": limit,
@@ -242,7 +234,7 @@ async def get_product(slug_or_id: str, db: AsyncSession = Depends(get_db)):
 async def create_product(
     body: ProductCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     existing = await db.execute(select(Product).where(Product.sku == body.sku))
     if existing.scalar_one_or_none():
@@ -275,7 +267,7 @@ async def update_product(
     product_id: str,
     body: ProductUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     product = await db.get(Product, product_id)
     if not product:
@@ -310,7 +302,7 @@ async def update_product(
 async def delete_product(
     product_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     product = await db.get(Product, product_id)
     if not product:
@@ -324,7 +316,7 @@ async def delete_product(
 @inventory_router.get("", response_model=dict)
 async def list_inventory(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager_or_director),
     branch_id: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     stock_status: Optional[str] = Query(None),
@@ -364,7 +356,7 @@ async def list_inventory(
 async def get_branch_inventory(
     branch_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
     low_stock_only: bool = Query(False),
 ):
     query = (
@@ -386,7 +378,7 @@ async def update_inventory(
     inventory_id: str,
     body: InventoryUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     item = await db.get(InventoryItem, inventory_id)
     if not item:
@@ -412,7 +404,7 @@ async def restock(
     branch_id: str,
     quantity: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager_or_staff),
+    _: User = Depends(require_manager),
 ):
     """Add stock to a branch. Creates inventory record if it doesn't exist."""
     result = await db.execute(

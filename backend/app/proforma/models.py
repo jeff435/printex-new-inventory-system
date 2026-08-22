@@ -51,6 +51,18 @@ class ProformaInvoice(Base):
 
     # Integer minor units (KES cents), same convention as Product.price_kes.
     subtotal_kes = Column(Integer, nullable=False, default=0)
+
+    # Discount applied to the subtotal before VAT. Percentage is what staff
+    # enter; the KES amount is stored alongside it so a PI still reads
+    # correctly even if nobody recalculates it later.
+    discount_pct = Column(Numeric(5, 2), nullable=False, default=0)
+    discount_kes = Column(Integer, nullable=False, default=0)
+
+    # Always computed server-side as 16% of (subtotal - discount) — Kenya's
+    # standard VAT rate. Never accepted from the client; see VAT_RATE in
+    # app.proforma.router. Kept as a column (not derived at read time) so a
+    # PDF/Excel export of an old PI still shows the rate that applied when it
+    # was raised, even if VAT_RATE is ever amended by law in future.
     tax_kes = Column(Integer, nullable=False, default=0)
     total_kes = Column(Integer, nullable=False, default=0)
 

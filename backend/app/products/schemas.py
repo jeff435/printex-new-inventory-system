@@ -81,17 +81,14 @@ class ProductListItem(BaseModel):
     sku: str
     name: str
     slug: str
-    part_number: Optional[str] = None
     price_kes: int
     compare_price_kes: Optional[int]
-    buying_price_usd: Optional[int] = None
     thumbnail_url: Optional[str]
     unit: Optional[str]
     unit_value: Optional[float]
     is_age_restricted: bool
     status: str
-    category_id: Optional[str] = None
-    category_name: Optional[str] = None
+    needs_pricing: bool = False
     rating_avg: Optional[float] = None
     rating_count: int = 0
     model_config = {"from_attributes": True}
@@ -146,8 +143,6 @@ class InventoryProductMini(BaseModel):
     id: str
     name: str
     sku: str
-    part_number: Optional[str] = None
-    category_id: Optional[str] = None
     thumbnail_url: Optional[str] = None
     model_config = {"from_attributes": True}
 

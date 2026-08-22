@@ -25,8 +25,6 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-import app.main  # noqa: F401
-
 from app.database import AsyncSessionLocal
 from app.auth.models import Branch
 from app.products.models import (

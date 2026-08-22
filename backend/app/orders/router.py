@@ -18,40 +18,6 @@ from app.orders.schemas import (
     OrderCreate, OrderOut, OrderStatusUpdate, SubstitutionResponse
 )
 from app.notifications.service import send_sms, send_order_confirmation_email
-from app.proforma.service import create_proforma_record
-from app.proforma.models import ProformaStatus
-
-
-async def _auto_generate_sale_proforma(db, order) -> None:
-    """A customer sale being confirmed (marked paid) is exactly the moment
-    a part has been purchased — raise a proforma invoice automatically as
-    the permanent sales record, VAT fixed at 16%. Best-effort: this must
-    never block or undo the order status change it's attached to."""
-    try:
-        lines = [{
-            "product_id": item.product_id,
-            "description": (
-                f"{item.product.name} (Part #{item.product.part_number})"
-                if item.product and item.product.part_number
-                else (item.product.name if item.product else "Part")
-            ),
-            "quantity": item.quantity,
-            "unit_price_kes": item.unit_price_kes,
-        } for item in order.items]
-
-        await create_proforma_record(
-            db,
-            created_by_id=order.user_id,
-            customer_name=order.user.full_name if order.user else "Walk-in customer",
-            customer_phone=order.user.phone if order.user else None,
-            customer_email=order.user.email if order.user else None,
-            branch_id=order.branch_id,
-            lines=lines,
-            status=ProformaStatus.CONVERTED,
-            notes=f"Auto-generated on confirming order {order.order_number}.",
-        )
-    except Exception:
-        pass
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -276,7 +242,6 @@ async def update_order_status(
     if body.status == OrderStatus.CONFIRMED:
         order.confirmed_at = now_iso
         order.payment_status = "paid"
-        await _auto_generate_sale_proforma(db, order)
     elif body.status == OrderStatus.DISPATCHED:
         order.dispatched_at = now_iso
     elif body.status == OrderStatus.DELIVERED:

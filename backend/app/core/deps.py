@@ -73,6 +73,16 @@ require_manager_or_director = require_role(
     UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER, UserRole.DIRECTOR
 )
 
+# Printex's real catalogue/stock work (products, categories, inventory) is
+# done by directors and secretaries day to day, not the legacy
+# branch/inventory-manager roles from the original e-commerce template.
+# Everyone who can reach the Products/Inventory/Categories pages in the
+# admin UI needs to be allowed to actually write to them here too.
+require_manager_or_staff = require_role(
+    UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER,
+    UserRole.DIRECTOR, UserRole.SECRETARY,
+)
+
 # A super_admin can create directors; a director (or super_admin) can create
 # secretaries. Secretaries themselves don't manage other staff.
 require_director = require_role(UserRole.SUPER_ADMIN, UserRole.DIRECTOR)

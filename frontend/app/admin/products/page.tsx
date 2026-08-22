@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, productsApi } from "@/lib/api";
 import { useAdminBranchStore } from "@/stores";
 import toast from "react-hot-toast";
 import { Plus, Search, ToggleLeft, ToggleRight, Pencil, Package } from "lucide-react";
@@ -20,15 +20,29 @@ export default function AdminProductsPage() {
     const { selectedBranchId } = useAdminBranchStore();
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
+    const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
     const [page, setPage] = useState(1);
 
+    const { data: categories } = useQuery({
+        queryKey: ["admin-categories-az"],
+        queryFn: () => productsApi.categories().then((r) => r.data),
+    });
+
+    // A–Z quick filter: Printex's categories are the register columns
+    // (Category A, Category B, ...), so sorting them alphabetically gives
+    // a natural A–Z strip rather than a literal letter picker.
+    const sortedCategories = [...(categories ?? [])].sort((a: any, b: any) =>
+        a.name.localeCompare(b.name)
+    );
+
     const { data, isLoading } = useQuery({
-        queryKey: ["admin-products", search, statusFilter, page],
+        queryKey: ["admin-products", search, statusFilter, categoryFilter, page],
         queryFn: () =>
             api.get("/products", {
                 params: {
                     search: search || undefined,
                     status: statusFilter === "all" ? undefined : statusFilter,
+                    category_id: categoryFilter === "all" ? undefined : categoryFilter,
                     page,
                     limit: 20,
                 },
@@ -57,7 +71,7 @@ export default function AdminProductsPage() {
                     <input
                         value={search}
                         onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                        placeholder="Search products or SKU..."
+                        placeholder="Search products, SKU, or part number..."
                         className={`w-full pl-9 pr-4 ${INP}`}
                     />
                 </div>
@@ -80,6 +94,34 @@ export default function AdminProductsPage() {
                 </Link>
             </div>
 
+            {/* A–Z category filter strip */}
+            {sortedCategories.length > 0 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                    <button
+                        onClick={() => { setCategoryFilter("all"); setPage(1); }}
+                        className={`flex-shrink-0 px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${categoryFilter === "all"
+                                ? "bg-gray-900 text-white border-gray-900"
+                                : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                            }`}
+                    >
+                        All
+                    </button>
+                    {sortedCategories.map((c: any) => (
+                        <button
+                            key={c.id}
+                            onClick={() => { setCategoryFilter(c.id); setPage(1); }}
+                            title={c.name}
+                            className={`flex-shrink-0 px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${categoryFilter === c.id
+                                    ? "bg-gray-900 text-white border-gray-900"
+                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                                }`}
+                        >
+                            {c.name}
+                        </button>
+                    ))}
+                </div>
+            )}
+
             {/* Table */}
             {isLoading ? (
                 <div className="space-y-2">
@@ -91,9 +133,9 @@ export default function AdminProductsPage() {
                 <div className="admin-card p-16 text-center">
                     <Package size={32} className="mx-auto text-gray-300 mb-3" />
                     <p className="text-sm text-gray-400">
-                        {search || statusFilter !== "all" ? "No products match your filters." : "No products yet."}
+                        {search || statusFilter !== "all" || categoryFilter !== "all" ? "No products match your filters." : "No products yet."}
                     </p>
-                    {!search && statusFilter === "all" && (
+                    {!search && statusFilter === "all" && categoryFilter === "all" && (
                         <Link href="/admin/products/new" className="mt-4 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
                             <Plus size={14} /> Add your first product
                         </Link>
@@ -106,8 +148,10 @@ export default function AdminProductsPage() {
                             <thead>
                                 <tr className="border-b border-gray-100 bg-gray-50/80">
                                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
-                                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">SKU</th>
-                                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Price</th>
+                                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Part #</th>
+                                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Category</th>
+                                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Buying (USD)</th>
+                                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Selling (KES)</th>
                                     <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                                 </tr>
@@ -124,12 +168,22 @@ export default function AdminProductsPage() {
                                                 </div>
                                                 <div className="min-w-0">
                                                     <p className="font-medium text-gray-900 line-clamp-1">{p.name}</p>
-                                                    {p.unit && <p className="text-xs text-gray-400">{p.unit}</p>}
+                                                    <p className="text-xs text-gray-400 font-mono">{p.sku}{p.unit ? ` · ${p.unit}` : ""}</p>
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="px-4 py-3 hidden sm:table-cell">
-                                            <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-lg">{p.sku}</span>
+                                            {p.part_number
+                                                ? <span className="font-mono text-xs text-gray-700 bg-gray-100 px-2 py-0.5 rounded-lg">{p.part_number}</span>
+                                                : <span className="text-xs text-gray-300">—</span>}
+                                        </td>
+                                        <td className="px-4 py-3 hidden md:table-cell">
+                                            <span className="text-xs text-gray-500">{p.category_name ?? "—"}</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                            {p.buying_price_usd != null
+                                                ? <p className="text-gray-700">${(p.buying_price_usd / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                                                : <p className="text-xs text-gray-300">Not recorded</p>}
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <p className="font-bold text-gray-900">KES {(p.price_kes / 100).toLocaleString()}</p>

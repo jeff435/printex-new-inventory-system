@@ -13,6 +13,7 @@ from app.proforma.models import ProformaInvoice, ProformaInvoiceItem, ProformaSt
 from app.proforma.schemas import (
     ProformaInvoiceCreate, ProformaInvoiceOut, ProformaStatusUpdate,
 )
+from app.proforma.service import compute_vat_kes
 
 router = APIRouter(prefix="/proforma-invoices", tags=["Proforma Invoices"])
 
@@ -99,6 +100,10 @@ async def create_proforma_invoice(
             line_total_kes=line_total,
         ))
 
+    # VAT is fixed at 16% by business policy — never taken from the
+    # request body, regardless of what a client sends.
+    tax = compute_vat_kes(subtotal)
+
     pi_number = await _next_pi_number(db)
     inv = ProformaInvoice(
         id=str(uuid.uuid4()),
@@ -110,8 +115,8 @@ async def create_proforma_invoice(
         notes=body.notes,
         valid_until=body.valid_until,
         subtotal_kes=subtotal,
-        tax_kes=body.tax_kes,
-        total_kes=subtotal + body.tax_kes,
+        tax_kes=tax,
+        total_kes=subtotal + tax,
         created_by_id=current_user.id,
         items=items,
     )

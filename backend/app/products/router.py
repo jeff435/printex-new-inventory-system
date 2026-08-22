@@ -16,6 +16,7 @@ from app.products.schemas import (
     BrandOut, BrandCreate, InventoryOut, InventoryUpdate,
 )
 from app.auth.models import User, UserRole
+from app.core.deps import STAFF_ROLES
 
 router = APIRouter(prefix="/products", tags=["Products"])
 inventory_router = APIRouter(prefix="/inventory", tags=["Inventory"])
@@ -150,9 +151,15 @@ async def list_products(
     page: int = Query(1, ge=1),
     limit: int = Query(24, ge=1, le=100),
 ):
-    is_manager = current_user is not None and current_user.role in (
-        UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER
-    )
+    # Any signed-in staff member (super_admin / director / secretary — see
+    # STAFF_ROLES in app.core.deps) sees the full catalog in every status,
+    # including parts awaiting pricing or not yet published. This used to
+    # check the old, no-longer-used branch_manager/inventory_manager roles
+    # and left director/secretary falling through to the public-storefront
+    # branch below, silently hiding every non-"active" part from them —
+    # including inside the proforma-invoice product-search box, which calls
+    # this same endpoint.
+    is_manager = current_user is not None and current_user.role in STAFF_ROLES
 
     query = select(Product).options(
         selectinload(Product.category), selectinload(Product.brand)

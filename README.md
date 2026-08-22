@@ -159,3 +159,4 @@ now handled by the stock-movement ledger instead of purchase orders.
 
 Removed: the hardcoded `amountKsh / 130.0` exchange rate in the old
 `formatPrice`, replaced by the two independent currency fields above.
+# printex-new-inventory-system

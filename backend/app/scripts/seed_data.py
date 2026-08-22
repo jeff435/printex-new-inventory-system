@@ -1,338 +1,204 @@
 """
-Seed script — populates the database with realistic test data so every
-admin page (and the customer-facing storefront) has something real to
-look at: branches, categories, brands, products, inventory at varying
-stock levels, users of every role, and a handful of orders in different
-statuses.
+Seed script — imports the Printex Engineers parts register into the database.
 
-Safe to re-run: every insert checks for an existing record first (by
-slug/sku/email) and skips it rather than erroring on a duplicate, so you
-can run this again after a fresh `docker compose up` without wiping
-anything.
+The source is `printex_parts.json`, transcribed from six photographs of the
+company's handwritten register (Columns A–F). It carries 134 parts across six
+categories, with buying prices in USD and selling prices in KES as two
+independent recorded figures — there is no exchange rate anywhere in this
+import and none should be introduced.
+
+Safe to re-run: every insert looks for an existing record first (by slug or
+SKU) and updates it rather than erroring on a duplicate. Stock is only written
+on first creation, so re-running will NOT wipe out live stock figures that have
+moved on since the import.
 
 Usage (from inside the backend container or venv):
-    python -m app.scripts.seed_data
+    python -m app.scripts.seed_printex
+
+Run migrations/002_printex_parts_and_customers.sql first, or the new columns
+will not exist yet.
 """
 import asyncio
-import random
+import json
 import uuid
-from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.core.security import hash_password
-from app.auth.models import User, UserRole, UserStatus, Branch, Address
+from app.auth.models import Branch
 from app.products.models import (
-    Category, Brand, Product, ProductStatus, InventoryItem, StockStatus,
+    Category, Product, ProductStatus, InventoryItem,
+    StockMovement, StockMovementReason,
 )
-from app.orders.models import Order, OrderItem, OrderStatus, PaymentMethod
+# Not used directly here, but this registers every model in the app —
+# Order, Customer, Payment, Delivery, Wallet, etc. — with SQLAlchemy's
+# declarative registry. See create_admin.py for the full explanation.
+import app.main  # noqa: F401
+
+DATA_FILE = Path(__file__).parent / "printex_parts.json"
+
+# Printex operates from a single workshop. The underlying schema is multi-branch —
+# inventory is held per product per branch — so we seed one branch and hang
+# everything off it. The schema is left intact so additional locations can be
+# added later without a migration.
+BRANCH = dict(
+    name="Printex Engineers — Nairobi",
+    slug="printex-nairobi",
+    address="Nairobi, Kenya",
+    area="Nairobi",
+    city="Nairobi",
+)
+
+# Below this many units on hand, a part shows as Low Stock. The register
+# records no reorder levels, so this is a starting default for staff to tune
+# per part in the admin UI rather than a figure from the business.
+DEFAULT_REORDER_POINT = 5
 
 
 def gen_id() -> str:
     return str(uuid.uuid4())
 
 
-# ── Reference data ────────────────────────────────────────────────────────────
-
-BRANCHES = [
-    dict(name="Soko Westlands", slug="soko-westlands", address="Waiyaki Way, Westlands",
-         area="Westlands", city="Nairobi", phone="+254700111000"),
-    dict(name="Soko CBD", slug="soko-cbd", address="Kenyatta Avenue, CBD",
-         area="CBD", city="Nairobi", phone="+254700111001"),
-    dict(name="Soko Kilimani", slug="soko-kilimani", address="Argwings Kodhek Road, Kilimani",
-         area="Kilimani", city="Nairobi", phone="+254700111002"),
-]
-
-CATEGORIES = [
-    "Fruits & Vegetables", "Dairy & Eggs", "Bakery", "Beverages",
-    "Grains & Cereals", "Snacks", "Household & Cleaning", "Personal Care",
-]
-
-BRANDS = [
-    "Brookside", "Daima", "Kapa Oil", "Coca-Cola", "Unga Ltd",
-    "Colgate", "Soko Choice",
-]
-
-# (name, category, brand-or-None, price_kes in cents, unit, unit_value)
-PRODUCTS = [
-    ("Sukuma Wiki (Kale) - bunch", "Fruits & Vegetables", None, 3000, "bunch", 1),
-    ("Tomatoes - 1kg", "Fruits & Vegetables", None, 8000, "kg", 1),
-    ("Red Onions - 1kg", "Fruits & Vegetables", None, 7000, "kg", 1),
-    ("Ripe Bananas - 1 dozen", "Fruits & Vegetables", None, 12000, "dozen", 1),
-    ("Irish Potatoes - 2kg", "Fruits & Vegetables", None, 15000, "kg", 2),
-    ("Avocado - each", "Fruits & Vegetables", None, 2500, "pcs", 1),
-    ("Fresh Milk 500ml", "Dairy & Eggs", "Brookside", 6500, "ml", 500),
-    ("Fresh Milk 1L", "Dairy & Eggs", "Daima", 12000, "litre", 1),
-    ("Eggs - tray of 30", "Dairy & Eggs", None, 45000, "tray", 30),
-    ("Yoghurt 500ml", "Dairy & Eggs", "Brookside", 9000, "ml", 500),
-    ("White Bread - 400g loaf", "Bakery", "Soko Choice", 6000, "loaf", 1),
-    ("Brown Bread - 400g loaf", "Bakery", "Soko Choice", 6500, "loaf", 1),
-    ("Mandazi - pack of 6", "Bakery", None, 5000, "pack", 6),
-    ("Coca-Cola 500ml", "Beverages", "Coca-Cola", 8000, "ml", 500),
-    ("Bottled Water 1L", "Beverages", "Soko Choice", 5000, "litre", 1),
-    ("Orange Juice 1L", "Beverages", None, 18000, "litre", 1),
-    ("Maize Flour 2kg", "Grains & Cereals", "Unga Ltd", 22000, "kg", 2),
-    ("Rice (Pishori) 2kg", "Grains & Cereals", None, 35000, "kg", 2),
-    ("Sugar 2kg", "Grains & Cereals", None, 28000, "kg", 2),
-    ("Cooking Oil 2L", "Grains & Cereals", "Kapa Oil", 65000, "litre", 2),
-    ("Potato Crisps 150g", "Snacks", None, 15000, "g", 150),
-    ("Biscuits - assorted 200g", "Snacks", None, 12000, "g", 200),
-    ("Peanuts 250g", "Snacks", None, 10000, "g", 250),
-    ("Dish Soap 750ml", "Household & Cleaning", "Soko Choice", 18000, "ml", 750),
-    ("Toilet Paper - pack of 4", "Household & Cleaning",
-     "Soko Choice", 25000, "pack", 4),
-    ("Washing Powder 1kg", "Household & Cleaning", None, 32000, "kg", 1),
-    ("Toothpaste 100ml", "Personal Care", "Colgate", 14000, "ml", 100),
-    ("Bar Soap 175g", "Personal Care", None, 8000, "g", 175),
-    ("Bath Soap 100g", "Personal Care", None, 6000, "g", 100),
-]
-
-TEST_USERS = [
-    dict(full_name="Jane Manager", email="manager@test.com",
-         role=UserRole.BRANCH_MANAGER),
-    dict(full_name="Ian Stockkeeper", email="inventory@test.com",
-         role=UserRole.INVENTORY_MANAGER),
-    dict(full_name="David Driver", email="driver@test.com", role=UserRole.DRIVER),
-    dict(full_name="Asha Customer",
-         email="customer1@test.com", role=UserRole.CUSTOMER),
-    dict(full_name="Brian Customer",
-         email="customer2@test.com", role=UserRole.CUSTOMER),
-]
-TEST_PASSWORD = "TestPass123!"
-
-
-async def get_or_create(db, model, defaults: dict, **lookup):
-    """Fetch a row matching `lookup`; create it with `defaults` merged in if missing."""
-    result = await db.execute(select(model).filter_by(**lookup))
-    obj = result.scalar_one_or_none()
-    if obj:
-        return obj, False
-    obj = model(id=gen_id(), **lookup, **defaults)
-    db.add(obj)
+async def seed_branch(db) -> Branch:
+    result = await db.execute(select(Branch).where(Branch.slug == BRANCH["slug"]))
+    branch = result.scalar_one_or_none()
+    if branch:
+        print(f"  branch exists → {branch.name}")
+        return branch
+    branch = Branch(id=gen_id(), **BRANCH)
+    db.add(branch)
     await db.flush()
-    return obj, True
+    print(f"  branch created → {branch.name}")
+    return branch
 
 
-async def seed():
+async def seed_categories(db, categories) -> dict:
+    """Returns {register_column_letter: Category}."""
+    by_code = {}
+    created = 0
+    for c in categories:
+        result = await db.execute(select(Category).where(Category.slug == c["slug"]))
+        cat = result.scalar_one_or_none()
+        if not cat:
+            cat = Category(
+                id=gen_id(),
+                name=c["name"],
+                slug=c["slug"],
+                description=c["description"],
+                sort_order=ord(c["code"]) - ord("A"),
+                is_active=True,
+            )
+            db.add(cat)
+            created += 1
+        else:
+            cat.description = c["description"]
+        by_code[c["code"]] = cat
+    await db.flush()
+    print(f"  categories: {created} created, {len(categories) - created} existing")
+    return by_code
+
+
+async def seed_parts(db, parts, cats, branch):
+    created = updated = 0
+    stock_rows = 0
+
+    for p in parts:
+        result = await db.execute(select(Product).where(Product.sku == p["sku"]))
+        prod = result.scalar_one_or_none()
+        is_new = prod is None
+
+        if is_new:
+            prod = Product(id=gen_id(), sku=p["sku"], slug=p["slug"])
+            db.add(prod)
+
+        # A part with no recorded selling price is imported at zero and
+        # flagged. It stays visible to staff and still counts toward stock, but
+        # the order service refuses to sell it until someone prices it.
+        prod.name = p["name"]
+        prod.part_number = p["part_number"]
+        prod.register_column = p["register_column"]
+        prod.register_note = p["register_note"]
+        prod.category_id = cats[p["register_column"]].id
+        prod.price_kes = p["price_kes"]
+        prod.buying_price_usd = p["buying_price_usd"]
+        prod.needs_pricing = p["needs_pricing"]
+        prod.unit = p["unit"]
+        prod.status = ProductStatus.ACTIVE
+
+        # Build a description that keeps the register's own wording, so a
+        # storeman can match a printed row against the original book.
+        bits = [p["name"]]
+        if p["part_number"]:
+            bits.append(f"Part No. {p['part_number']}")
+        prod.short_description = " — ".join(bits)
+
+        await db.flush()
+
+        if is_new:
+            created += 1
+        else:
+            updated += 1
+            # Stock is deliberately NOT touched on re-run: by then the real
+            # figure has moved on and the register is only a historical opening
+            # balance.
+            continue
+
+        qty = p["quantity_on_hand"]
+        inv = InventoryItem(
+            id=gen_id(),
+            product_id=prod.id,
+            branch_id=branch.id,
+            quantity_on_hand=qty,
+            quantity_reserved=0,
+            reorder_point=DEFAULT_REORDER_POINT,
+        )
+        db.add(inv)
+        inv.update_stock_status()
+
+        if qty:
+            db.add(StockMovement(
+                id=gen_id(),
+                product_id=prod.id,
+                branch_id=branch.id,
+                quantity_delta=qty,
+                quantity_after=qty,
+                reason=StockMovementReason.OPENING_BALANCE,
+                reference="Handwritten register import",
+                note=f"Column {p['register_column']} opening balance.",
+            ))
+            stock_rows += 1
+
+    await db.flush()
+    print(f"  parts: {created} created, {updated} updated")
+    print(f"  opening stock movements: {stock_rows}")
+
+
+async def main():
+    data = json.loads(DATA_FILE.read_text())
+    parts = data["parts"]
+
+    print("Seeding Printex parts register…")
     async with AsyncSessionLocal() as db:
-        created = {"branches": 0, "categories": 0, "brands": 0, "products": 0,
-                   "inventory": 0, "users": 0, "addresses": 0, "orders": 0}
-
-        # ── Branches ──────────────────────────────────────────────────────
-        branches = []
-        for b in BRANCHES:
-            obj, was_new = await get_or_create(
-                db, Branch, defaults={
-                    **{k: v for k, v in b.items() if k != "slug"}, "is_active": True},
-                slug=b["slug"],
-            )
-            branches.append(obj)
-            created["branches"] += int(was_new)
-
-        # ── Categories ────────────────────────────────────────────────────
-        categories = {}
-        for i, name in enumerate(CATEGORIES):
-            slug = name.lower().replace(" & ", "-").replace(" ", "-")
-            obj, was_new = await get_or_create(
-                db, Category, defaults={"name": name,
-                                        "sort_order": i, "is_active": True},
-                slug=slug,
-            )
-            categories[name] = obj
-            created["categories"] += int(was_new)
-
-        # ── Brands ────────────────────────────────────────────────────────
-        brands = {}
-        for name in BRANDS:
-            slug = name.lower().replace(" ", "-")
-            obj, was_new = await get_or_create(
-                db, Brand, defaults={"name": name, "is_active": True},
-                slug=slug,
-            )
-            brands[name] = obj
-            created["brands"] += int(was_new)
-
+        branch = await seed_branch(db)
+        cats = await seed_categories(db, data["categories"])
+        await seed_parts(db, parts, cats, branch)
         await db.commit()
 
-        # ── Products ──────────────────────────────────────────────────────
-        products = []
-        for idx, (name, cat_name, brand_name, price, unit, unit_value) in enumerate(PRODUCTS):
-            sku = f"SKU-{idx + 1:04d}"
-            slug = name.lower().replace(" - ", "-").replace(" ",
-                                                            "-").replace("(", "").replace(")", "")
-            result = await db.execute(select(Product).filter_by(sku=sku))
-            obj = result.scalar_one_or_none()
-            if not obj:
-                obj = Product(
-                    id=gen_id(),
-                    sku=sku,
-                    name=name,
-                    slug=slug,
-                    short_description=f"{name} — fresh from Soko",
-                    category_id=categories[cat_name].id,
-                    brand_id=brands[brand_name].id if brand_name else None,
-                    price_kes=price,
-                    compare_price_kes=price +
-                    random.choice([0, 0, 500, 1000]) or None,
-                    unit=unit,
-                    unit_value=unit_value,
-                    status=ProductStatus.ACTIVE,
-                )
-                db.add(obj)
-                created["products"] += 1
-                await db.flush()
-            products.append(obj)
+    unpriced = [p for p in parts if p["needs_pricing"]]
+    no_cost = [p for p in parts if p["buying_price_usd"] is None]
+    total_qty = sum(p["quantity_on_hand"] for p in parts)
 
-        await db.commit()
-
-        # ── Inventory (varied stock levels across branches) ──────────────
-        for p_idx, product in enumerate(products):
-            for b_idx, branch in enumerate(branches):
-                result = await db.execute(
-                    select(InventoryItem).filter_by(
-                        product_id=product.id, branch_id=branch.id)
-                )
-                if result.scalar_one_or_none():
-                    continue
-
-                # Mix of stock situations so the low-stock/out-of-stock UI has real data
-                bucket = (p_idx + b_idx) % 6
-                if bucket == 0:
-                    qty, reorder = 0, 10            # out of stock
-                elif bucket == 1:
-                    qty, reorder = 5, 10             # low stock
-                else:
-                    qty, reorder = random.randint(20, 150), 10  # healthy stock
-
-                status = (
-                    StockStatus.OUT_OF_STOCK if qty <= 0
-                    else StockStatus.LOW_STOCK if qty <= reorder
-                    else StockStatus.IN_STOCK
-                )
-                item = InventoryItem(
-                    id=gen_id(),
-                    product_id=product.id,
-                    branch_id=branch.id,
-                    quantity_on_hand=qty,
-                    quantity_reserved=0,
-                    reorder_point=reorder,
-                    stock_status=status,
-                )
-                db.add(item)
-                created["inventory"] += 1
-
-        await db.commit()
-
-        # ── Users ─────────────────────────────────────────────────────────
-        user_objs = {}
-        for u in TEST_USERS:
-            result = await db.execute(select(User).filter_by(email=u["email"]))
-            obj = result.scalar_one_or_none()
-            if not obj:
-                obj = User(
-                    id=gen_id(),
-                    full_name=u["full_name"],
-                    email=u["email"],
-                    password_hash=hash_password(TEST_PASSWORD),
-                    role=u["role"],
-                    status=UserStatus.ACTIVE,
-                    is_email_verified=True,
-                )
-                db.add(obj)
-                created["users"] += 1
-                await db.flush()
-            user_objs[u["email"]] = obj
-
-        await db.commit()
-
-        # ── A default address for each test customer ─────────────────────
-        for email in ("customer1@test.com", "customer2@test.com"):
-            user = user_objs[email]
-            result = await db.execute(select(Address).filter_by(user_id=user.id))
-            if not result.scalar_one_or_none():
-                addr = Address(
-                    id=gen_id(),
-                    user_id=user.id,
-                    label="Home",
-                    full_name=user.full_name,
-                    phone="+254712345678",
-                    street="Riverside Drive, Apt 4B",
-                    area="Westlands",
-                    city="Nairobi",
-                    county="Nairobi",
-                    is_default=True,
-                )
-                db.add(addr)
-                created["addresses"] += 1
-
-        await db.commit()
-
-        # ── Sample orders in a spread of statuses ─────────────────────────
-        customer = user_objs["customer1@test.com"]
-        branch = branches[0]
-        sample_statuses = [
-            OrderStatus.PENDING_PAYMENT, OrderStatus.CONFIRMED,
-            OrderStatus.PICKING, OrderStatus.DISPATCHED,
-            OrderStatus.DELIVERED, OrderStatus.CANCELLED,
-        ]
-
-        existing_orders = (await db.execute(
-            select(Order).filter_by(user_id=customer.id, branch_id=branch.id)
-        )).scalars().all()
-
-        if len(existing_orders) < len(sample_statuses):
-            for i, status in enumerate(sample_statuses):
-                order_number = f"SK{datetime.now(timezone.utc).strftime('%y%m%d')}{1000 + i}"
-                existing = await db.execute(select(Order).filter_by(order_number=order_number))
-                if existing.scalar_one_or_none():
-                    continue
-
-                chosen = random.sample(products, k=min(3, len(products)))
-                items_data = [(p, random.randint(1, 4)) for p in chosen]
-                subtotal = sum(p.price_kes * qty for p, qty in items_data)
-                delivery_fee = 15000
-                total = subtotal + delivery_fee
-
-                order = Order(
-                    id=gen_id(),
-                    order_number=order_number,
-                    user_id=customer.id,
-                    branch_id=branch.id,
-                    status=status,
-                    subtotal_kes=subtotal,
-                    delivery_fee_kes=delivery_fee,
-                    total_kes=total,
-                    payment_method=PaymentMethod.MPESA,
-                    payment_status="paid" if status not in (
-                        OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED
-                    ) else "unpaid",
-                )
-                db.add(order)
-                await db.flush()
-
-                for product, qty in items_data:
-                    db.add(OrderItem(
-                        id=gen_id(),
-                        order_id=order.id,
-                        product_id=product.id,
-                        quantity=qty,
-                        unit_price_kes=product.price_kes,
-                        total_price_kes=product.price_kes * qty,
-                    ))
-                created["orders"] += 1
-
-        await db.commit()
-
-        print("✅ Seed complete:")
-        for k, v in created.items():
-            print(f"   {k}: +{v}")
-        print()
-        print("Test login credentials (all use the same password):")
-        print(f"   password: {TEST_PASSWORD}")
-        for u in TEST_USERS:
-            print(f"   {u['role'].value:18s} {u['email']}")
+    print("\nDone.")
+    print(f"  {len(parts)} parts · {total_qty:,} units on hand")
+    print(f"  {len(unpriced)} parts flagged 'needs pricing' (cannot be sold yet)")
+    print(f"  {len(no_cost)} parts have no buying price recorded")
+    if data["struck_out"]:
+        print(f"  {len(data['struck_out'])} struck-out register lines were NOT imported:")
+        for s in data["struck_out"]:
+            label = s["part_number"] or s["name"]
+            print(f"      Column {s['register_column']} · {label}")
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    asyncio.run(main())

@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
 
 export default function AdminSettingsPage() {
-    const { user, setUser, accessToken, refreshToken } = useAuthStore();
+    const { user, setUser } = useAuthStore();
 
     const [currentPassword, setCurrentPassword] = useState("");
     const [newPassword, setNewPassword] = useState("");
@@ -42,7 +42,11 @@ export default function AdminSettingsPage() {
             setCurrentPassword("");
             setNewPassword("");
             setConfirmPassword("");
-            if (user && accessToken && refreshToken) setUser(user, accessToken, refreshToken);
+            if (user) {
+                const accessToken = typeof window !== "undefined" ? localStorage.getItem("access_token") || "" : "";
+                const refreshToken = typeof window !== "undefined" ? localStorage.getItem("refresh_token") || "" : "";
+                setUser(user, accessToken, refreshToken);
+            }
         } catch (err: any) {
             toast.error(err.response?.data?.detail || "Failed to change password");
         } finally {

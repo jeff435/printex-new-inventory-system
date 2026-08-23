@@ -61,17 +61,8 @@ def require_role(*roles: UserRole):
 
 # Shorthand dependencies
 require_admin = require_role(UserRole.SUPER_ADMIN)
-# NOTE: branch_manager and inventory_manager are legacy roles from before
-# Printex became a staff-only (super_admin/director/secretary) system — see
-# STAFF_ROLES below and the login check in app.auth.router, which rejects
-# both of those roles outright. That means every endpoint gated on
-# require_manager alone (creating/editing categories, brands, products, and
-# uploading product images) was, in practice, reachable by super_admin only:
-# a director could never actually add a category or a product, no matter
-# what the admin UI's nav invited them to do. DIRECTOR is added here so
-# catalog management works for the role the UI already presents it to.
 require_manager = require_role(
-    UserRole.SUPER_ADMIN, UserRole.DIRECTOR, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER)
+    UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER)
 require_driver = require_role(UserRole.SUPER_ADMIN, UserRole.DRIVER)
 require_manager_or_driver = require_role(
     UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER, UserRole.DRIVER

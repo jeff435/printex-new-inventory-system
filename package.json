@@ -1,8 +1,13 @@
 {
+  "scripts": {
+    "build": "cd frontend && npm install --include=dev && npm run build",
+    "start": "cd frontend && npm start"
+  },
   "dependencies": {
     "@supabase/server": "^1.4.1",
     "@supabase/ssr": "^0.12.4",
-    "@supabase/supabase-js": "^2.112.3"
+    "@supabase/supabase-js": "^2.112.3",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "supabase": "^2.115.0"

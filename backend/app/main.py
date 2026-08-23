@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.database import create_tables, apply_sql_migrations
+from app.database import create_tables
 from app.core.redis import get_redis, redis_close
 from app.core.exceptions import AppException, app_exception_handler
 # Routers
@@ -20,12 +20,6 @@ from app.branches.router import router as branches_router
 from app.uploads.router import router as uploads_router
 from app.chat.router import router as chat_router
 from app.proforma.router import router as proforma_router
-from app.analytics.router import router as analytics_router
-from app.purchases.router import (
-    router as purchases_router,
-    suppliers_router as suppliers_router,
-    expenses_router as expenses_router,
-)
 
 # Model registration — these modules define tables but expose no router yet.
 # They must still be imported before create_tables() so SQLAlchemy registers
@@ -40,11 +34,6 @@ async def lifespan(app: FastAPI):
     print("🚀 Starting Printex Engineers API...")
     if settings.APP_ENV == "development":
         await create_tables()
-    # Runs in every environment (not just "development") — see the comment on
-    # apply_sql_migrations() in app/database.py for why this used to be a
-    # manual, easy-to-forget step that left new features (proforma invoices,
-    # purchases/suppliers/expenses) silently 500ing on any non-dev deploy.
-    await apply_sql_migrations()
     await get_redis()
     print("✅ Ready")
     yield
@@ -91,14 +80,6 @@ app.include_router(branches_router,   prefix=API_PREFIX)
 app.include_router(uploads_router,    prefix=API_PREFIX)
 app.include_router(chat_router, prefix=API_PREFIX)
 app.include_router(proforma_router, prefix=API_PREFIX)
-app.include_router(analytics_router, prefix=API_PREFIX)
-# These three were fully built (see app/purchases/router.py) but never wired
-# up here, so /purchases, /suppliers and /expenses all 404'd and the
-# analytics summary's expenses/purchases figures could never be anything
-# but zero. Registering them is what makes those numbers real.
-app.include_router(purchases_router, prefix=API_PREFIX)
-app.include_router(suppliers_router, prefix=API_PREFIX)
-app.include_router(expenses_router, prefix=API_PREFIX)
 
 # ── Health check ──────────────────────────────────────────────────────────────
 

@@ -44,8 +44,9 @@ export default function ProfilePage() {
                 email: email || undefined,
             });
             // Update store with new user data
-            const tokens = useAuthStore.getState();
-            setUser(data, tokens.accessToken!, tokens.refreshToken!);
+            const accessToken = typeof window !== "undefined" ? localStorage.getItem("access_token") || "" : "";
+            const refreshToken = typeof window !== "undefined" ? localStorage.getItem("refresh_token") || "" : "";
+            setUser(data, accessToken, refreshToken);
             toast.success("Profile updated");
         } catch (err: any) {
             toast.error(err.response?.data?.detail || "Failed to update profile");

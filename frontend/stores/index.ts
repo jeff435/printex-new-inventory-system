@@ -149,36 +149,3 @@ export const useCartStore = create<CartState>()(
     { name: "printex-cart" }
   )
 );
-
-// ── Products → Proforma Invoice hand-off ────────────────────────────────────
-//
-// The "Add to PI" button on the admin Products page pushes parts here, one
-// at a time. The Proforma Invoices page reads this queue on load, drops each
-// part into the line-items list as its own row (never overwriting a row that
-// already has something in it), and then empties the queue — so picking
-// several different parts from the Products page, even across page visits,
-// adds every one of them as its own line, not just the last one clicked.
-export interface PendingPiPart {
-  product_id: string;
-  name: string;
-  sku: string;
-  part_number?: string | null;
-  price_kes: number;
-}
-
-interface PendingPiState {
-  parts: PendingPiPart[];
-  addPart: (part: PendingPiPart) => void;
-  clearParts: () => void;
-}
-
-export const usePendingPiStore = create<PendingPiState>()(
-  persist(
-    (set) => ({
-      parts: [],
-      addPart: (part) => set((s) => ({ parts: [...s.parts, part] })),
-      clearParts: () => set({ parts: [] }),
-    }),
-    { name: "printex-pending-pi-parts" }
-  )
-);

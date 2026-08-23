@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { proformaApi, productsApi } from "@/lib/api";
 import { downloadBlob, openPdfBlob, printPdfBlob } from "@/lib/file-export";
-import { useAuthStore } from "@/stores";
+import { useAuthStore, usePendingPiStore } from "@/stores";
 import toast from "react-hot-toast";
 import {
     Plus, X, FileText, Trash2, ChevronDown, ChevronUp,
@@ -127,6 +127,31 @@ export default function ProformaInvoicesPage() {
         notes: "", valid_until: "", discount_pct: "0",
     });
     const [items, setItems] = useState<Item[]>([emptyItem()]);
+
+    // ── Parts sent over from the Products page's "Add to Proforma Invoice"
+    // button ─────────────────────────────────────────────────────────────
+    // Each part in the queue becomes its own line item — never overwrites a
+    // row that already has something in it — so clicking "Add to PI" on
+    // several different parts (even across separate visits to Products)
+    // adds every one of them, not just the last one.
+    const { parts: pendingParts, clearParts } = usePendingPiStore();
+    useEffect(() => {
+        if (pendingParts.length === 0) return;
+        setShowForm(true);
+        setItems((prev) => {
+            const hasRealRow = prev.some((it) => it.description.trim() || it.product_id);
+            const base = hasRealRow ? prev : [];
+            const newRows: Item[] = pendingParts.map((p) => ({
+                product_id: p.product_id,
+                description: p.name,
+                quantity: "1",
+                unit_price_kes: kshInput(p.price_kes),
+            }));
+            return [...base, ...newRows];
+        });
+        clearParts();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pendingParts.length]);
 
     const isSecretary = user?.role === "secretary";
     const canSeeAll = user?.role === "super_admin" || user?.role === "director";
@@ -347,6 +372,11 @@ export default function ProformaInvoicesPage() {
                                             updateItem(idx, "product_id", p.id);
                                             updateItem(idx, "description", p.name);
                                             updateItem(idx, "unit_price_kes", kshInput(p.price_kes));
+                                            // Picking a part on the last row opens a fresh
+                                            // empty row right away, so adding several parts
+                                            // in a row never requires reaching for "+ Add
+                                            // line item" in between each one.
+                                            if (idx === items.length - 1) addItem();
                                         }}
                                     />
                                     <input type="number" min="0" step="0.01" placeholder="Qty" value={it.quantity}

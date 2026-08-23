@@ -87,6 +87,14 @@ async def apply_sql_migrations():
             if not sql.strip():
                 continue
             logger.info("Applying migration: %s", path.name)
-            await conn.exec_driver_sql(sql)
+            # exec_driver_sql() sends the file through asyncpg's prepared-
+            # statement path, which refuses any string containing more than
+            # one SQL command — and every migration file here has many
+            # (CREATE TABLE, CREATE INDEX, ALTER TABLE, ...). Running the
+            # whole file via asyncpg's simple-query protocol (through the
+            # raw driver connection) allows multi-statement scripts, the
+            # same way `psql < file.sql` does.
+            raw_connection = await conn.get_raw_connection()
+            await raw_connection.driver_connection.execute(sql)
 
     logger.info("✅ %d migration file(s) applied (idempotent — re-run is a no-op)", len(sql_files))

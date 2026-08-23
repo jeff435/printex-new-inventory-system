@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useAdminBranchStore } from "@/stores";
+import { useAdminBranchStore, usePendingPiStore } from "@/stores";
 import toast from "react-hot-toast";
-import { Plus, Search, ToggleLeft, ToggleRight, Pencil, Package } from "lucide-react";
+import { Plus, Search, ToggleLeft, ToggleRight, Pencil, Package, FileText } from "lucide-react";
 import Link from "next/link";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -17,7 +18,9 @@ const INP = "px-3 py-2 text-sm bg-white border border-gray-200 rounded-xl focus:
 
 export default function AdminProductsPage() {
     const queryClient = useQueryClient();
+    const router = useRouter();
     const { selectedBranchId } = useAdminBranchStore();
+    const { addPart } = usePendingPiStore();
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
     const [page, setPage] = useState(1);
@@ -47,6 +50,12 @@ export default function AdminProductsPage() {
 
     const products = data?.items ?? [];
     const totalPages = data?.pages ?? 1;
+
+    const handleAddToPi = (p: any) => {
+        addPart({ product_id: p.id, name: p.name, sku: p.sku, price_kes: p.price_kes });
+        toast.success(`${p.name} added — opening Proforma Invoice`);
+        router.push("/admin/proforma-invoices?fromProducts=1");
+    };
 
     return (
         <div className="space-y-4">
@@ -168,6 +177,14 @@ export default function AdminProductsPage() {
                                                 >
                                                     <Pencil size={13} />
                                                 </Link>
+
+                                                <button
+                                                    onClick={() => handleAddToPi(p)}
+                                                    className="glass-icon-btn w-8 h-8 flex items-center justify-center text-green-600"
+                                                    title="Add to Proforma Invoice"
+                                                >
+                                                    <FileText size={13} />
+                                                </button>
                                             </div>
                                         </td>
                                     </tr>

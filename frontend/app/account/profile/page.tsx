@@ -43,9 +43,12 @@ export default function ProfilePage() {
                 phone: phone || undefined,
                 email: email || undefined,
             });
-            // Update store with new user data
-            const tokens = useAuthStore.getState();
-            setUser(data, tokens.accessToken!, tokens.refreshToken!);
+            // Update store with new user data. Tokens aren't kept in the
+            // store itself (setUser only ever writes them to localStorage),
+            // so re-read them from there rather than from the store state.
+            const accessToken = localStorage.getItem("access_token") || "";
+            const refreshToken = localStorage.getItem("refresh_token") || "";
+            setUser(data, accessToken, refreshToken);
             toast.success("Profile updated");
         } catch (err: any) {
             toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to update profile");

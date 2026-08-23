@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
 
 export default function AdminSettingsPage() {
-    const { user, setUser, accessToken, refreshToken } = useAuthStore();
+    const { user, setUser } = useAuthStore();
 
     const [currentPassword, setCurrentPassword] = useState("");
     const [newPassword, setNewPassword] = useState("");
@@ -42,6 +42,10 @@ export default function AdminSettingsPage() {
             setCurrentPassword("");
             setNewPassword("");
             setConfirmPassword("");
+            // Tokens aren't kept in the store itself (setUser only ever
+            // writes them to localStorage), so re-read them from there.
+            const accessToken = localStorage.getItem("access_token");
+            const refreshToken = localStorage.getItem("refresh_token");
             if (user && accessToken && refreshToken) setUser(user, accessToken, refreshToken);
         } catch (err: any) {
             toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to change password");

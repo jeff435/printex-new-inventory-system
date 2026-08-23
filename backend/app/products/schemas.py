@@ -53,6 +53,7 @@ class BrandCreate(BaseModel):
 class ProductOut(BaseModel):
     id: str
     sku: str
+    part_number: Optional[str] = None
     name: str
     slug: str
     description: Optional[str]
@@ -79,6 +80,7 @@ class ProductOut(BaseModel):
 class ProductListItem(BaseModel):
     id: str
     sku: str
+    part_number: Optional[str] = None
     name: str
     slug: str
     price_kes: int
@@ -88,6 +90,7 @@ class ProductListItem(BaseModel):
     unit_value: Optional[float]
     is_age_restricted: bool
     status: str
+    needs_pricing: bool = False
     rating_avg: Optional[float] = None
     rating_count: int = 0
     model_config = {"from_attributes": True}
@@ -95,6 +98,7 @@ class ProductListItem(BaseModel):
 
 class ProductCreate(BaseModel):
     sku: str
+    part_number: Optional[str] = None
     name: str
     slug: str
     description: Optional[str] = None
@@ -119,6 +123,7 @@ class ProductCreate(BaseModel):
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
+    part_number: Optional[str] = None
     description: Optional[str] = None
     short_description: Optional[str] = None
     category_id: Optional[str] = None
@@ -142,6 +147,7 @@ class InventoryProductMini(BaseModel):
     id: str
     name: str
     sku: str
+    part_number: Optional[str] = None
     thumbnail_url: Optional[str] = None
     model_config = {"from_attributes": True}
 

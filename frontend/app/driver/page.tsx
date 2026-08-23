@@ -73,7 +73,7 @@ export default function DriverDashboard() {
             queryClient.invalidateQueries({ queryKey: ["my-deliveries"] });
             toast.success("Status updated");
         },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Could not update status"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Could not update status"),
     });
 
     const handleAdvance = (orderId: string, nextStatus: string) => {

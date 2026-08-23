@@ -25,13 +25,13 @@ export default function AdminBranchesPage() {
             setShowForm(false);
             setForm({ name: "", slug: "", address: "", area: "", city: "Nairobi", phone: "", delivery_radius_km: "10" });
         },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed to create branch"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to create branch"),
     });
 
     const toggleActiveMutation = useMutation({
         mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) => api.patch(`/branches/${id}`, { is_active }),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-branches"] }); toast.success("Branch updated"); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed"),
     });
 
     const handleCreate = () => {

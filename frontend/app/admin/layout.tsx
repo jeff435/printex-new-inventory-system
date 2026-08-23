@@ -7,7 +7,7 @@ import Link from "next/link";
 import {
     LayoutDashboard, ClipboardList, Package, Tags,
     Warehouse, Users, GitBranch, LogOut, Menu, ChevronRight,
-    UserCog, Contact, FileText, Settings, BarChart3,
+    UserCog, Contact, FileText, Settings, Receipt, BarChart3,
 } from "lucide-react";
 
 // Printex is a staff-only inventory system for exactly three roles.
@@ -17,12 +17,13 @@ type NavItem = { href: string; label: string; icon: React.ElementType; roles: st
 
 const NAV: NavItem[] = [
     { href: "/admin", label: "Overview", icon: LayoutDashboard, roles: ["super_admin", "director", "secretary"] },
-    { href: "/admin/directors/analytics", label: "Director Analytics", icon: BarChart3, roles: ["super_admin", "director"] },
     { href: "/admin/orders", label: "Orders", icon: ClipboardList, roles: ["super_admin", "director"] },
-    { href: "/admin/products", label: "Products", icon: Package, roles: ["super_admin", "director"] },
-    { href: "/admin/categories", label: "Categories", icon: Tags, roles: ["super_admin"] },
-    { href: "/admin/inventory", label: "Inventory", icon: Warehouse, roles: ["super_admin", "director"] },
+    { href: "/admin/directors/analytics", label: "Director Analytics", icon: BarChart3, roles: ["super_admin", "director"] },
+    { href: "/admin/products", label: "Products", icon: Package, roles: ["super_admin", "director", "secretary"] },
+    { href: "/admin/categories", label: "Categories", icon: Tags, roles: ["super_admin", "director", "secretary"] },
+    { href: "/admin/inventory", label: "Inventory", icon: Warehouse, roles: ["super_admin", "director", "secretary"] },
     { href: "/admin/proforma-invoices", label: "Proforma Invoices", icon: FileText, roles: ["super_admin", "director", "secretary"] },
+    { href: "/admin/purchases", label: "Purchases & Expenses", icon: Receipt, roles: ["super_admin", "director"] },
     { href: "/admin/users", label: "Users", icon: Users, roles: ["super_admin"] },
     { href: "/admin/branches", label: "Branches", icon: GitBranch, roles: ["super_admin"] },
     { href: "/admin/directors", label: "Directors", icon: UserCog, roles: ["super_admin"] },
@@ -103,15 +104,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
 
     return (
-        <div className="flex h-screen overflow-hidden bg-[#f5f6f8]" style={{ paddingTop: 0 }}>
-            {/* Desktop sidebar */}
-            <aside className="hidden md:flex w-60 flex-shrink-0 flex-col bg-white shadow-xl">
+        <div className="flex h-screen overflow-hidden bg-[#f5f6f8] print:h-auto print:overflow-visible print:bg-white" style={{ paddingTop: 0 }}>
+            {/* Desktop sidebar — hidden when printing so only page content prints */}
+            <aside className="hidden md:flex w-60 flex-shrink-0 flex-col bg-white shadow-xl print:hidden">
                 <SidebarContent />
             </aside>
 
             {/* Mobile sidebar overlay */}
             {sidebarOpen && (
-                <div className="md:hidden fixed inset-0 z-50 flex">
+                <div className="md:hidden fixed inset-0 z-50 flex print:hidden">
                     <div className="w-60 flex-shrink-0 flex flex-col bg-white shadow-xl">
                         <SidebarContent />
                     </div>
@@ -120,8 +121,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             )}
 
             {/* Main */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-                <header className="flex-shrink-0 h-14 bg-white backdrop-blur-md border-b border-[#e6e8eb] flex items-center px-4 gap-3 shadow-sm">
+            <div className="flex-1 flex flex-col overflow-hidden print:overflow-visible">
+                <header className="flex-shrink-0 h-14 bg-white backdrop-blur-md border-b border-[#e6e8eb] flex items-center px-4 gap-3 shadow-sm print:hidden">
                     <button className="md:hidden p-2 rounded-lg hover:bg-gray-100" onClick={() => setSidebarOpen(true)}>
                         <Menu size={18} />
                     </button>
@@ -132,7 +133,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                         <BranchSelector />
                     </div>
                 </header>
-                <main className="flex-1 overflow-y-auto p-6">{children}</main>
+                <main className="flex-1 overflow-y-auto p-6 print:overflow-visible print:p-0">{children}</main>
             </div>
         </div>
     );

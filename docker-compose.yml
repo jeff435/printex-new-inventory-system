@@ -65,8 +65,9 @@ services:
     container_name: printex-frontend
     restart: unless-stopped
     environment:
-      # This is baked into the browser bundle, so it must be a URL the
-      # BROWSER can reach — localhost, not the compose service name.
+      # Left as localhost on purpose — the frontend auto-detects each
+      # browser's own host at runtime (see lib/api.ts) so phones and other
+      # laptops on the network reach the API correctly without editing this.
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
     ports:
       - "3000:3000"

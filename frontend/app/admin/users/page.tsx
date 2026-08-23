@@ -32,7 +32,7 @@ export default function AdminUsersPage() {
     const updateRoleMutation = useMutation({
         mutationFn: ({ id, role }: { id: string; role: string }) => api.patch(`/auth/users/${id}`, { role }),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-users"] }); toast.success("Role updated"); setEditingRole(null); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed to update role"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to update role"),
     });
 
     const users = data?.items ?? data ?? [];

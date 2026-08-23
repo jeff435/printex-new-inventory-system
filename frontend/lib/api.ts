@@ -1,6 +1,31 @@
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+// Resolve where the browser should reach the API.
+//
+// NEXT_PUBLIC_API_URL is baked into the JS bundle at BUILD time, so a
+// hardcoded "http://localhost:8000/api/v1" only ever works on the one
+// laptop that built the container — every other laptop or phone opening
+// the site over the network has its own "localhost", which isn't running
+// anything, so every single API call (every button) silently fails there.
+//
+// Fix: if the env var isn't explicitly set to something other than
+// localhost, derive the API host from whatever host the browser actually
+// used to load the page. A phone that opened http://192.168.1.50:3000
+// will then correctly call http://192.168.1.50:8000/api/v1 — no per-device
+// config needed. This only runs in the browser; on the server it falls
+// back to the env var (or localhost) since there's no window there.
+function resolveApiUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL;
+  const isLocalhostDefault =
+    !configured || /^https?:\/\/localhost(:|\/|$)/.test(configured);
+
+  if (typeof window !== "undefined" && isLocalhostDefault) {
+    return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
+  }
+  return configured || "http://localhost:8000/api/v1";
+}
+
+const API_URL = resolveApiUrl();
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -124,9 +149,64 @@ export const proformaApi = {
     api.get("/proforma-invoices", { params }),
   get: (id: string) => api.get(`/proforma-invoices/${id}`),
   create: (data: unknown) => api.post("/proforma-invoices", data),
+  update: (id: string, data: unknown) =>
+    api.patch(`/proforma-invoices/${id}`, data),
   updateStatus: (id: string, status: string) =>
     api.patch(`/proforma-invoices/${id}/status`, { status }),
   remove: (id: string) => api.delete(`/proforma-invoices/${id}`),
+  // Blobs — used for download / print / "open in new tab" buttons.
+  pdfBlob: (id: string) =>
+    api.get(`/proforma-invoices/${id}/pdf`, { responseType: "blob" }),
+  excelBlob: (id: string) =>
+    api.get(`/proforma-invoices/${id}/export/excel`, { responseType: "blob" }),
+};
+
+// ── Analytics (director / admin full view, secretary: stock-status only) ──
+
+export const analyticsApi = {
+  summary: (params?: Record<string, unknown>) =>
+    api.get("/analytics/summary", { params }),
+  stockStatus: (params?: Record<string, unknown>) =>
+    api.get("/analytics/stock-status", { params }),
+  customerPurchases: (params?: Record<string, unknown>) =>
+    api.get("/analytics/customer-purchases", { params }),
+  topParts: (params?: Record<string, unknown>) =>
+    api.get("/analytics/top-parts", { params }),
+  stockMovements: (params?: Record<string, unknown>) =>
+    api.get("/analytics/stock-movements", { params }),
+  stockStatusPdfBlob: (params?: Record<string, unknown>) =>
+    api.get("/analytics/stock-status/pdf", { params, responseType: "blob" }),
+  stockStatusExcelBlob: (params?: Record<string, unknown>) =>
+    api.get("/analytics/stock-status/export/excel", { params, responseType: "blob" }),
+  customerPurchasesPdfBlob: (params?: Record<string, unknown>) =>
+    api.get("/analytics/customer-purchases/pdf", { params, responseType: "blob" }),
+  customerPurchasesExcelBlob: (params?: Record<string, unknown>) =>
+    api.get("/analytics/customer-purchases/export/excel", { params, responseType: "blob" }),
+  summaryExcelBlob: (params?: Record<string, unknown>) =>
+    api.get("/analytics/export/excel", { params, responseType: "blob" }),
+  summaryPdfBlob: (params?: Record<string, unknown>) =>
+    api.get("/analytics/summary/pdf", { params, responseType: "blob" }),
+};
+
+// ── Purchases, Suppliers & Expenses (admin / director) ──────────────────────
+
+export const purchasesApi = {
+  list: (params?: Record<string, unknown>) => api.get("/purchases", { params }),
+  get: (id: string) => api.get(`/purchases/${id}`),
+  create: (data: unknown) => api.post("/purchases", data),
+  receive: (id: string) => api.post(`/purchases/${id}/receive`),
+  cancel: (id: string) => api.post(`/purchases/${id}/cancel`),
+};
+
+export const suppliersApi = {
+  list: (params?: Record<string, unknown>) => api.get("/suppliers", { params }),
+  create: (data: unknown) => api.post("/suppliers", data),
+  update: (id: string, data: unknown) => api.patch(`/suppliers/${id}`, data),
+};
+
+export const expensesApi = {
+  list: (params?: Record<string, unknown>) => api.get("/expenses", { params }),
+  create: (data: unknown) => api.post("/expenses", data),
 };
 
 // ── Products ──────────────────────────────────────────────────────────────────

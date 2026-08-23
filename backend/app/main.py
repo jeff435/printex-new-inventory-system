@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.database import create_tables
+from app.database import create_tables, apply_sql_migrations
 from app.core.redis import get_redis, redis_close
 from app.core.exceptions import AppException, app_exception_handler
 # Routers
@@ -20,6 +20,12 @@ from app.branches.router import router as branches_router
 from app.uploads.router import router as uploads_router
 from app.chat.router import router as chat_router
 from app.proforma.router import router as proforma_router
+from app.analytics.router import router as analytics_router
+from app.purchases.router import (
+    router as purchases_router,
+    suppliers_router as suppliers_router,
+    expenses_router as expenses_router,
+)
 
 # Model registration — these modules define tables but expose no router yet.
 # They must still be imported before create_tables() so SQLAlchemy registers
@@ -34,6 +40,11 @@ async def lifespan(app: FastAPI):
     print("🚀 Starting Printex Engineers API...")
     if settings.APP_ENV == "development":
         await create_tables()
+    # Runs in every environment (not just "development") — see the comment on
+    # apply_sql_migrations() in app/database.py for why this used to be a
+    # manual, easy-to-forget step that left new features (proforma invoices,
+    # purchases/suppliers/expenses) silently 500ing on any non-dev deploy.
+    await apply_sql_migrations()
     await get_redis()
     print("✅ Ready")
     yield
@@ -54,6 +65,21 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins_list,
+    # In development, staff open the admin panel from many different
+    # laptops and phones on the same office network — each browser sends a
+    # different origin (http://192.168.x.x:3000, http://10.0.x.x:3000, ...)
+    # that can't be listed ahead of time in ALLOWED_ORIGINS. This regex
+    # accepts any private-network origin on port 3000 so those devices
+    # aren't silently rejected by CORS while everything still requires a
+    # valid login. It has no effect in production, where APP_ENV != "development"
+    # and only the explicit ALLOWED_ORIGINS list is honoured.
+    allow_origin_regex=(
+        r"^https?://(localhost|127\.0\.0\.1|"
+        r"(10(?:\.\d{1,3}){3})|"
+        r"(192\.168(?:\.\d{1,3}){2})|"
+        r"(172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})"
+        r")(:\d+)?$"
+    ) if settings.APP_ENV == "development" else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,6 +106,14 @@ app.include_router(branches_router,   prefix=API_PREFIX)
 app.include_router(uploads_router,    prefix=API_PREFIX)
 app.include_router(chat_router, prefix=API_PREFIX)
 app.include_router(proforma_router, prefix=API_PREFIX)
+app.include_router(analytics_router, prefix=API_PREFIX)
+# These three were fully built (see app/purchases/router.py) but never wired
+# up here, so /purchases, /suppliers and /expenses all 404'd and the
+# analytics summary's expenses/purchases figures could never be anything
+# but zero. Registering them is what makes those numbers real.
+app.include_router(purchases_router, prefix=API_PREFIX)
+app.include_router(suppliers_router, prefix=API_PREFIX)
+app.include_router(expenses_router, prefix=API_PREFIX)
 
 # ── Health check ──────────────────────────────────────────────────────────────
 

@@ -46,7 +46,7 @@ export default function OrdersPage() {
             setConfirmCancel(null);
         },
         onError: (err: any) => {
-            toast.error(err.response?.data?.detail || "Could not cancel order");
+            toast.error((err.response?.data?.detail || err.response?.data?.message) || "Could not cancel order");
             setConfirmCancel(null);
         },
     });

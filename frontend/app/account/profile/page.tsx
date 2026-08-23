@@ -44,12 +44,11 @@ export default function ProfilePage() {
                 email: email || undefined,
             });
             // Update store with new user data
-            const accessToken = typeof window !== "undefined" ? localStorage.getItem("access_token") || "" : "";
-            const refreshToken = typeof window !== "undefined" ? localStorage.getItem("refresh_token") || "" : "";
-            setUser(data, accessToken, refreshToken);
+            const tokens = useAuthStore.getState();
+            setUser(data, tokens.accessToken!, tokens.refreshToken!);
             toast.success("Profile updated");
         } catch (err: any) {
-            toast.error(err.response?.data?.detail || "Failed to update profile");
+            toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to update profile");
         } finally {
             setSavingContact(false);
         }
@@ -79,7 +78,7 @@ export default function ProfilePage() {
             setNewPassword("");
             setConfirmPassword("");
         } catch (err: any) {
-            toast.error(err.response?.data?.detail || "Failed to change password");
+            toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to change password");
         } finally {
             setSavingPassword(false);
         }

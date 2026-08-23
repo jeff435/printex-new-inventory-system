@@ -27,7 +27,7 @@ export default function AdminSecretariesPage() {
             setShowForm(false);
             setForm({ full_name: "", phone: "", email: "", password: "" });
         },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed to add secretary"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to add secretary"),
     });
 
     const handleCreate = () => {

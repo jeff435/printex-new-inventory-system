@@ -35,7 +35,16 @@ class ValidationError(AppException):
 
 
 async def app_exception_handler(request: Request, exc: AppException):
+    # The frontend's error handlers everywhere (20+ places, including the
+    # inventory Add/Deduct buttons) read err.response.data.detail — that's
+    # the FastAPI-standard field name. This handler was only sending
+    # "message", so every one of those business-rule errors (e.g. "Only 5
+    # on hand — can't remove 10") arrived with no "detail" field at all,
+    # and the frontend silently fell back to a generic "failed" toast
+    # instead of showing the real reason. Sending both keys fixes every
+    # one of those call sites at once, and keeps "message" for anything
+    # still reading the old field.
     return JSONResponse(
         status_code=exc.status_code,
-        content={"success": False, "code": exc.code, "message": exc.detail},
+        content={"success": False, "code": exc.code, "detail": exc.detail, "message": exc.detail},
     )

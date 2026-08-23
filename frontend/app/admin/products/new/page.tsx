@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 import { ArrowLeft, Upload, X, Loader2 } from "lucide-react";
 
 const emptyForm = {
-    name: "", sku: "", slug: "", description: "", short_description: "",
+    name: "", sku: "", part_number: "", slug: "", description: "", short_description: "",
     price_kes: "", compare_price_kes: "", category_id: "", brand_id: "",
     unit: "", unit_value: "", thumbnail_url: "", status: "ACTIVE",
 };
@@ -39,6 +39,7 @@ function ProductFormContent() {
         setForm({
             name: existingProduct.name ?? "",
             sku: existingProduct.sku ?? "",
+            part_number: existingProduct.part_number ?? "",
             slug: existingProduct.slug ?? "",
             description: existingProduct.description ?? "",
             short_description: existingProduct.short_description ?? "",
@@ -67,7 +68,7 @@ function ProductFormContent() {
     const createMutation = useMutation({
         mutationFn: (payload: Record<string, unknown>) => api.post("/products", payload),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-products"] }); toast.success("Product created!"); router.push("/admin/products"); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed to create product"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to create product"),
     });
 
     const updateMutation = useMutation({
@@ -78,7 +79,7 @@ function ProductFormContent() {
             toast.success("Product updated!");
             router.push("/admin/products");
         },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed to update product"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to update product"),
     });
 
     const saving = createMutation.isPending || updateMutation.isPending;
@@ -116,6 +117,7 @@ function ProductFormContent() {
             // SKU and slug are immutable once created, so they're excluded here
             updateMutation.mutate({
                 name: form.name,
+                part_number: form.part_number || null,
                 description: form.description || null,
                 short_description: form.short_description || null,
                 price_kes: Math.round(parseFloat(form.price_kes) * 100),
@@ -129,7 +131,7 @@ function ProductFormContent() {
             });
         } else {
             createMutation.mutate({
-                name: form.name, sku: form.sku, slug: form.slug,
+                name: form.name, sku: form.sku, part_number: form.part_number || null, slug: form.slug,
                 description: form.description || null,
                 short_description: form.short_description || null,
                 price_kes: Math.round(parseFloat(form.price_kes) * 100),
@@ -171,6 +173,7 @@ function ProductFormContent() {
             <div className="glass-card p-6 space-y-4">
                 <h2 className="font-semibold text-gray-800">Basic Info</h2>
                 <F label="Product Name *" k="name" ph="e.g. Brookside Milk 500ml" />
+                <F label="Part Number" k="part_number" ph="e.g. F4.020.292" />
                 <F label="SKU *" k="sku" ph="e.g. MILK-BS-500" disabled={isEditing} />
                 <F label="Slug" k="slug" ph="e.g. brookside-milk-500ml" disabled={isEditing} />
                 {isEditing && <p className="text-xs text-gray-400 -mt-2">SKU and slug can't be changed after a product is created.</p>}

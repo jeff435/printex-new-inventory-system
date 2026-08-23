@@ -29,7 +29,7 @@ export default function LocationSearch({ onSelect, streetValue, areaValue }: Pro
     const [loading, setLoading] = useState(false);
     const [gpsLoading, setGpsLoading] = useState(false);
     const [open, setOpen] = useState(false);
-    const debounceRef = useRef<NodeJS.Timeout | null>(null);
+    const debounceRef = useRef<NodeJS.Timeout>();
     const wrapperRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {

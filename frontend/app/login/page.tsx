@@ -87,32 +87,6 @@ function LoginContent() {
                     </div>
                   </button>
                 ))}
-
-                <div className="pt-3 border-t border-gray-200">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUser(
-                        {
-                          id: "director-demo-1",
-                          full_name: "Executive Director",
-                          phone: "+254700000000",
-                          email: "director@printex.co.ke",
-                          role: "director",
-                          is_phone_verified: true,
-                          is_email_verified: true,
-                        },
-                        "demo-director-access-token",
-                        "demo-director-refresh-token"
-                      );
-                      toast.success("Welcome back, Executive Director!");
-                      router.push("/admin/directors/analytics");
-                    }}
-                    className="w-full flex items-center justify-center gap-2 p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md transition-all transform hover:scale-[1.02]"
-                  >
-                    🚀 Instant Director Demo Login
-                  </button>
-                </div>
               </div>
             </>
           )}

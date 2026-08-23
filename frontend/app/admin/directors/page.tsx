@@ -25,7 +25,7 @@ export default function AdminDirectorsPage() {
             setShowForm(false);
             setForm({ full_name: "", phone: "", email: "", password: "" });
         },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed to add director"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed to add director"),
     });
 
     const handleCreate = () => {

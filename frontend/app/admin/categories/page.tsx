@@ -23,19 +23,19 @@ export default function AdminCategoriesPage() {
     const createMutation = useMutation({
         mutationFn: (payload: Record<string, unknown>) => api.post("/categories", payload),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-categories"] }); toast.success("Category created"); setShowForm(false); setForm({ name: "", slug: "", parent_id: "" }); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed"),
     });
 
     const updateMutation = useMutation({
         mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) => api.patch(`/categories/${id}`, payload),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-categories"] }); toast.success("Updated"); setEditingId(null); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Failed"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Failed"),
     });
 
     const deleteMutation = useMutation({
         mutationFn: (id: string) => api.delete(`/categories/${id}`),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-categories"] }); toast.success("Deleted"); setConfirmDelete(null); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Cannot delete — category may have products"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Cannot delete — category may have products"),
     });
 
     const cats = categories || [];

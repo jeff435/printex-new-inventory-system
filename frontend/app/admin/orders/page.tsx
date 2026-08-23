@@ -56,21 +56,21 @@ export default function AdminOrdersPage() {
     const updateMutation = useMutation({
         mutationFn: ({ id, status }: { id: string; status: string }) => api.patch(`/orders/${id}/status`, { status }),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-orders"] }); toast.success("Order status updated"); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Update failed"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Update failed"),
     });
 
     const assignDriverMutation = useMutation({
         mutationFn: ({ orderId, driverId, eta }: { orderId: string; driverId: string; eta: string }) =>
             api.post(`/deliveries/assign/${orderId}`, { driver_id: driverId, estimated_arrival: eta || null }),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-orders"] }); toast.success("Driver assigned"); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Could not assign driver"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Could not assign driver"),
     });
 
     const updateDeliveryMutation = useMutation({
         mutationFn: ({ orderId, status, failureReason }: { orderId: string; status: string; failureReason?: string }) =>
             api.patch(`/deliveries/status/${orderId}`, { status, failure_reason: failureReason }),
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-orders"] }); toast.success("Delivery status updated"); },
-        onError: (err: any) => toast.error(err.response?.data?.detail || "Could not update delivery"),
+        onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Could not update delivery"),
     });
 
     const allOrders = Array.isArray(data) ? data : (data?.items ?? []);

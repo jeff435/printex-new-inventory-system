@@ -46,7 +46,7 @@ class Purchase(Base):
         "suppliers.id"), nullable=False)
     branch_id = Column(UUID(as_uuid=False), ForeignKey(
         "branches.id"), nullable=False)
-        status = Column(SAEnum(PurchaseStatus, values_callable=lambda x: [e.value for e in x]),
+          status = Column(SAEnum(PurchaseStatus, values_callable=lambda x: [e.value for e in x]),
                      default=PurchaseStatus.DRAFT, nullable=False)
     total_amount = Column(Numeric(12, 2), default=0)
     notes = Column(Text, nullable=True)

@@ -11,13 +11,14 @@ from typing import Optional, List
 from app.database import get_db
 from app.core.deps import get_current_user, require_secretary
 from app.core.exceptions import NotFoundError, ForbiddenError, ValidationError
-from app.auth.models import User, UserRole
+from app.auth.models import User, UserRole, Branch
 from app.proforma.models import ProformaInvoice, ProformaInvoiceItem, ProformaStatus
 from app.proforma.schemas import (
     ProformaInvoiceCreate, ProformaInvoiceUpdate, ProformaInvoiceOut, ProformaStatusUpdate,
 )
 from app.proforma.pdf import render_proforma_pdf
 from app.proforma.excel_export import render_proforma_excel
+from app.products.models import InventoryItem, StockMovement, StockMovementReason
 
 router = APIRouter(prefix="/proforma-invoices", tags=["Proforma Invoices"])
 
@@ -117,6 +118,60 @@ async def _next_pi_number(db: AsyncSession) -> str:
     return f"PI-{count + 1:06d}"
 
 
+async def _deduct_stock_for_items(
+    db: AsyncSession, items: List[ProformaInvoiceItem], branch_id: Optional[str],
+    pi_number: str, user_id: str,
+) -> None:
+    """A part added to a saved proforma invoice comes off the shelf right
+    away — this is the automatic side of stock control the manual +/-
+    buttons on the Inventory page handle by hand. Only lines actually
+    linked to a catalog part (product_id set) move stock; a freehand typed
+    description has nothing to deduct from. Deducts at most what's on hand
+    (never goes negative, never blocks the invoice) and records every
+    deduction in the stock_movements ledger so it's traceable back to this
+    PI number.
+    """
+    target_branch_id = branch_id
+    if not target_branch_id:
+        result = await db.execute(select(Branch.id).where(Branch.is_active == True).limit(1))
+        target_branch_id = result.scalar_one_or_none()
+    if not target_branch_id:
+        return  # no branch to deduct against — nothing we can do
+
+    for line in items:
+        if not line.product_id:
+            continue
+
+        result = await db.execute(
+            select(InventoryItem).where(
+                InventoryItem.product_id == line.product_id,
+                InventoryItem.branch_id == target_branch_id,
+            )
+        )
+        inv_item = result.scalar_one_or_none()
+        if not inv_item or inv_item.quantity_on_hand <= 0:
+            continue
+
+        deduct = min(inv_item.quantity_on_hand, int(Decimal(str(line.quantity))))
+        if deduct <= 0:
+            continue
+
+        inv_item.quantity_on_hand -= deduct
+        inv_item.update_stock_status()
+
+        db.add(StockMovement(
+            id=str(uuid.uuid4()),
+            product_id=line.product_id,
+            branch_id=target_branch_id,
+            quantity_delta=-deduct,
+            quantity_after=inv_item.quantity_on_hand,
+            reason=StockMovementReason.SALE,
+            reference=pi_number,
+            note=f"Auto-deducted for proforma invoice {pi_number}",
+            user_id=user_id,
+        ))
+
+
 async def _get_owned_or_visible(db: AsyncSession, pi_id: str, current_user: User) -> ProformaInvoice:
     result = await db.execute(_load_query().where(ProformaInvoice.id == pi_id))
     inv = result.scalar_one_or_none()
@@ -158,6 +213,9 @@ async def create_proforma_invoice(
         items=items,
     )
     db.add(inv)
+    await db.commit()
+
+    await _deduct_stock_for_items(db, items, body.branch_id, pi_number, current_user.id)
     await db.commit()
 
     result = await db.execute(_load_query().where(ProformaInvoice.id == inv.id))

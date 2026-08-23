@@ -162,6 +162,7 @@ export interface PendingPiPart {
   product_id: string;
   name: string;
   sku: string;
+  part_number?: string | null;
   price_kes: number;
 }
 

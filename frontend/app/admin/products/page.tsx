@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useAdminBranchStore, usePendingPiStore } from "@/stores";
+import { useAdminBranchStore, usePendingPiStore, useAuthStore } from "@/stores";
 import toast from "react-hot-toast";
 import { Plus, Search, ToggleLeft, ToggleRight, Pencil, Package, FileText } from "lucide-react";
 import Link from "next/link";
@@ -21,6 +21,11 @@ export default function AdminProductsPage() {
     const router = useRouter();
     const { selectedBranchId } = useAdminBranchStore();
     const { addPart } = usePendingPiStore();
+    const { user } = useAuthStore();
+    // Secretaries get this page to search parts for a proforma invoice, not
+    // to manage the catalog — creating/editing/activating products stays
+    // with super_admin and director (see require_manager on the backend).
+    const canManageCatalog = user?.role === "super_admin" || user?.role === "director";
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
     const [page, setPage] = useState(1);
@@ -52,7 +57,7 @@ export default function AdminProductsPage() {
     const totalPages = data?.pages ?? 1;
 
     const handleAddToPi = (p: any) => {
-        addPart({ product_id: p.id, name: p.name, sku: p.sku, price_kes: p.price_kes });
+        addPart({ product_id: p.id, name: p.name, sku: p.sku, part_number: p.part_number, price_kes: p.price_kes });
         toast.success(`${p.name} added — opening Proforma Invoice`);
         router.push("/admin/proforma-invoices?fromProducts=1");
     };
@@ -66,7 +71,7 @@ export default function AdminProductsPage() {
                     <input
                         value={search}
                         onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                        placeholder="Search products or SKU..."
+                        placeholder="Search by part number, name, or SKU..."
                         className={`w-full pl-9 pr-4 ${INP}`}
                     />
                 </div>
@@ -80,13 +85,15 @@ export default function AdminProductsPage() {
                     <option value="inactive">Inactive</option>
                     <option value="discontinued">Discontinued</option>
                 </select>
-                <Link
-                    href="/admin/products/new"
-                    className="glass-btn text-sm flex items-center gap-1.5 flex-shrink-0"
-                >
-                    <Plus size={15} />
-                    Add Product
-                </Link>
+                {canManageCatalog && (
+                    <Link
+                        href="/admin/products/new"
+                        className="glass-btn text-sm flex items-center gap-1.5 flex-shrink-0"
+                    >
+                        <Plus size={15} />
+                        Add Product
+                    </Link>
+                )}
             </div>
 
             {/* Table */}
@@ -102,7 +109,7 @@ export default function AdminProductsPage() {
                     <p className="text-sm text-gray-400">
                         {search || statusFilter !== "all" ? "No products match your filters." : "No products yet."}
                     </p>
-                    {!search && statusFilter === "all" && (
+                    {!search && statusFilter === "all" && canManageCatalog && (
                         <Link href="/admin/products/new" className="mt-4 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
                             <Plus size={14} /> Add your first product
                         </Link>
@@ -115,6 +122,7 @@ export default function AdminProductsPage() {
                             <thead>
                                 <tr className="border-b border-gray-100 bg-gray-50/80">
                                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
+                                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Part No.</th>
                                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">SKU</th>
                                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Price</th>
                                     <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
@@ -138,6 +146,11 @@ export default function AdminProductsPage() {
                                             </div>
                                         </td>
                                         <td className="px-4 py-3 hidden sm:table-cell">
+                                            {p.part_number
+                                                ? <span className="font-mono text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg">{p.part_number}</span>
+                                                : <span className="text-xs text-gray-300">—</span>}
+                                        </td>
+                                        <td className="px-4 py-3 hidden sm:table-cell">
                                             <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-lg">{p.sku}</span>
                                         </td>
                                         <td className="px-4 py-3 text-right">
@@ -153,30 +166,34 @@ export default function AdminProductsPage() {
                                         </td>
                                         <td className="px-4 py-3">
                                             <div className="flex items-center justify-end gap-2">
-                                                {/* Toggle active / inactive */}
-                                                <button
-                                                    title={p.status === "active" ? "Deactivate" : "Activate"}
-                                                    disabled={toggleMutation.isPending}
-                                                    onClick={() =>
-                                                        toggleMutation.mutate({
-                                                            id: p.id,
-                                                            status: p.status === "active" ? "inactive" : "active",
-                                                        })
-                                                    }
-                                                    className="glass-icon-btn w-8 h-8 disabled:opacity-40"
-                                                >
-                                                    {p.status === "active"
-                                                        ? <ToggleRight size={15} className="text-green-600" />
-                                                        : <ToggleLeft size={15} className="text-gray-400" />}
-                                                </button>
+                                                {canManageCatalog && (
+                                                    <>
+                                                        {/* Toggle active / inactive */}
+                                                        <button
+                                                            title={p.status === "active" ? "Deactivate" : "Activate"}
+                                                            disabled={toggleMutation.isPending}
+                                                            onClick={() =>
+                                                                toggleMutation.mutate({
+                                                                    id: p.id,
+                                                                    status: p.status === "active" ? "inactive" : "active",
+                                                                })
+                                                            }
+                                                            className="glass-icon-btn w-8 h-8 disabled:opacity-40"
+                                                        >
+                                                            {p.status === "active"
+                                                                ? <ToggleRight size={15} className="text-green-600" />
+                                                                : <ToggleLeft size={15} className="text-gray-400" />}
+                                                        </button>
 
-                                                <Link
-                                                    href={`/admin/products/new?edit=${p.id}`}
-                                                    className="glass-icon-btn w-8 h-8 flex items-center justify-center text-blue-600"
-                                                    title="Edit product"
-                                                >
-                                                    <Pencil size={13} />
-                                                </Link>
+                                                        <Link
+                                                            href={`/admin/products/new?edit=${p.id}`}
+                                                            className="glass-icon-btn w-8 h-8 flex items-center justify-center text-blue-600"
+                                                            title="Edit product"
+                                                        >
+                                                            <Pencil size={13} />
+                                                        </Link>
+                                                    </>
+                                                )}
 
                                                 <button
                                                     onClick={() => handleAddToPi(p)}

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { proformaApi, productsApi } from "@/lib/api";
 import { downloadBlob, openPdfBlob, printPdfBlob } from "@/lib/file-export";
-import { useAuthStore, usePendingPiStore } from "@/stores";
+import { useAuthStore, usePendingPiStore, useAdminBranchStore } from "@/stores";
 import toast from "react-hot-toast";
 import {
     Plus, X, FileText, Trash2, ChevronDown, ChevronUp,
@@ -41,7 +41,10 @@ function kes(cents: number) {
     return `KSh ${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 function kshInput(value: number) {
-    return (value / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Feeds an <input type="number">, which cannot render a
+    // thousands-separated string (e.g. "15,200.00") — must stay a
+    // plain decimal.
+    return (value / 100).toFixed(2);
 }
 
 // ── Product search box for a single line item ──────────────────────────────
@@ -50,7 +53,7 @@ function ProductSearchBox({
     item, onSelectProduct, onDescriptionChange,
 }: {
     item: Item;
-    onSelectProduct: (p: { id: string; name: string; price_kes: number }) => void;
+    onSelectProduct: (p: { id: string; name: string; part_number?: string | null; price_kes: number }) => void;
     onDescriptionChange: (value: string) => void;
 }) {
     const [query, setQuery] = useState(item.description);
@@ -79,7 +82,7 @@ function ProductSearchBox({
             <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-350 text-gray-400" />
                 <input
-                    placeholder="Search inventory or type a description"
+                    placeholder="Search by part number or name"
                     value={query}
                     onChange={(e) => { setQuery(e.target.value); onDescriptionChange(e.target.value); setOpen(true); }}
                     onFocus={() => setOpen(true)}
@@ -93,13 +96,17 @@ function ProductSearchBox({
                             key={p.id}
                             type="button"
                             onClick={() => {
-                                onSelectProduct({ id: p.id, name: p.name, price_kes: p.price_kes });
-                                setQuery(p.name);
+                                onSelectProduct({ id: p.id, name: p.name, part_number: p.part_number, price_kes: p.price_kes });
+                                setQuery(p.part_number ? `${p.part_number} — ${p.name}` : p.name);
                                 setOpen(false);
                             }}
                             className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 border-b border-gray-50 last:border-0"
                         >
-                            <p className="font-medium text-gray-800 truncate">{p.name}</p>
+                            <p className="font-medium text-gray-800 truncate">
+                                {p.part_number && <span className="text-blue-600 font-mono">{p.part_number}</span>}
+                                {p.part_number && " — "}
+                                {p.name}
+                            </p>
                             <p className="text-gray-400">
                                 {p.sku} · {p.needs_pricing ? "Not yet priced" : kes(p.price_kes)}
                             </p>
@@ -111,16 +118,123 @@ function ProductSearchBox({
     );
 }
 
+// ── Full-screen "Add Part" search window ────────────────────────────────────
+// A separate, guaranteed-visible way to add a part to the invoice — a fixed
+// full-screen overlay, not a dropdown positioned under a small input. It
+// can't end up clipped, hidden behind another element, or squeezed to
+// nothing the way a small inline dropdown can, so this is the reliable path
+// even if the inline search box in a line item ever misbehaves.
+function AddPartModal({
+    open, onClose, onAdd,
+}: {
+    open: boolean;
+    onClose: () => void;
+    onAdd: (p: { id: string; name: string; part_number?: string | null; price_kes: number }) => void;
+}) {
+    const [query, setQuery] = useState("");
+    const [addedIds, setAddedIds] = useState<string[]>([]);
+
+    const { data, isFetching } = useQuery({
+        queryKey: ["add-part-modal-search", query],
+        queryFn: () => productsApi.list({ search: query, limit: 30 }).then((r) => r.data),
+        enabled: open && query.trim().length >= 1,
+    });
+    const results = data?.items ?? [];
+
+    useEffect(() => {
+        if (open) { setQuery(""); setAddedIds([]); }
+    }, [open]);
+
+    if (!open) return null;
+
+    return (
+        <div className="fixed inset-0 z-[999] flex items-start sm:items-center justify-center bg-black/40 p-3 sm:p-6">
+            <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[85vh] mt-10 sm:mt-0">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+                    <h3 className="font-semibold text-gray-900">Add a part to this invoice</h3>
+                    <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100">
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="p-4 flex-shrink-0">
+                    <div className="relative">
+                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+                        <input
+                            autoFocus
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Type a part number or part name..."
+                            className="w-full pl-9 pr-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                    </div>
+                </div>
+                <div className="flex-1 overflow-y-auto px-2 pb-4">
+                    {query.trim().length === 0 ? (
+                        <p className="text-center text-sm text-gray-400 py-10">Start typing to search your parts.</p>
+                    ) : isFetching ? (
+                        <p className="text-center text-sm text-gray-400 py-10">Searching…</p>
+                    ) : results.length === 0 ? (
+                        <p className="text-center text-sm text-gray-400 py-10">No parts match "{query}".</p>
+                    ) : (
+                        <div className="space-y-1">
+                            {results.map((p: any) => {
+                                const added = addedIds.includes(p.id);
+                                return (
+                                    <button
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => {
+                                            onAdd({ id: p.id, name: p.name, part_number: p.part_number, price_kes: p.price_kes });
+                                            setAddedIds((prev) => [...prev, p.id]);
+                                        }}
+                                        className={`w-full flex items-center justify-between gap-3 text-left px-3 py-2.5 rounded-xl transition-colors ${added ? "bg-green-50" : "hover:bg-gray-50"
+                                            }`}
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-medium text-gray-900 truncate">
+                                                {p.part_number && (
+                                                    <span className="text-blue-600 font-mono mr-1">{p.part_number}</span>
+                                                )}
+                                                {p.name}
+                                            </p>
+                                            <p className="text-xs text-gray-400">
+                                                {p.sku} · {p.needs_pricing ? "Not yet priced" : kes(p.price_kes)}
+                                            </p>
+                                        </div>
+                                        <span className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${added ? "bg-green-100 text-green-700" : "bg-blue-50 text-blue-700"
+                                            }`}>
+                                            {added ? "Added ✓" : "Add"}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+                <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
+                    <p className="text-xs text-gray-400">
+                        {addedIds.length > 0 ? `${addedIds.length} part${addedIds.length > 1 ? "s" : ""} added` : "Pick as many as you need"}
+                    </p>
+                    <button onClick={onClose} className="glass-btn text-sm px-4 py-2">Done</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ── Main page ───────────────────────────────────────────────────────────────
 
 export default function ProformaInvoicesPage() {
     const { user } = useAuthStore();
+    const { selectedBranchId } = useAdminBranchStore();
     const queryClient = useQueryClient();
     const [showForm, setShowForm] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState("all");
     const [busyExportId, setBusyExportId] = useState<string | null>(null);
+    const [addPartModalOpen, setAddPartModalOpen] = useState(false);
 
     const [form, setForm] = useState({
         customer_name: "", customer_phone: "", customer_email: "",
@@ -143,7 +257,7 @@ export default function ProformaInvoicesPage() {
             const base = hasRealRow ? prev : [];
             const newRows: Item[] = pendingParts.map((p) => ({
                 product_id: p.product_id,
-                description: p.name,
+                description: p.part_number ? `${p.part_number} — ${p.name}` : p.name,
                 quantity: "1",
                 unit_price_kes: kshInput(p.price_kes),
             }));
@@ -215,6 +329,23 @@ export default function ProformaInvoicesPage() {
     const addItem = () => setItems((prev) => [...prev, emptyItem()]);
     const removeItem = (idx: number) => setItems((prev) => prev.filter((_, i) => i !== idx));
 
+    // Adds a part chosen from the full-screen Add Part window as its own new
+    // line — drops into the first empty row if one's sitting there unused,
+    // otherwise appends a fresh row, so it never overwrites a part already
+    // added.
+    const handleAddPartFromModal = (p: { id: string; name: string; part_number?: string | null; price_kes: number }) => {
+        const description = p.part_number ? `${p.part_number} — ${p.name}` : p.name;
+        setShowForm(true);
+        setItems((prev) => {
+            const emptyIdx = prev.findIndex((it) => !it.description.trim() && !it.product_id);
+            const newItem: Item = { product_id: p.id, description, quantity: "1", unit_price_kes: kshInput(p.price_kes) };
+            if (emptyIdx !== -1) {
+                return prev.map((it, i) => (i === emptyIdx ? newItem : it));
+            }
+            return [...prev, newItem];
+        });
+    };
+
     // ── Live preview totals — mirrors the server's calc, display only ────────
     const subtotalCents = items.reduce((sum, it) => {
         const qty = parseFloat(it.quantity) || 0;
@@ -240,6 +371,11 @@ export default function ProformaInvoicesPage() {
             customer_name: form.customer_name,
             customer_phone: form.customer_phone || null,
             customer_email: form.customer_email || null,
+            // Which branch's shelf this quote's parts come off. Falls back to
+            // null (no auto stock deduction happens) when "All branches" is
+            // selected in the header, since there'd be no single branch to
+            // deduct from.
+            branch_id: selectedBranchId || null,
             notes: form.notes || null,
             valid_until: form.valid_until || null,
             discount_pct: discountPct,
@@ -370,7 +506,10 @@ export default function ProformaInvoicesPage() {
                                         }}
                                         onSelectProduct={(p) => {
                                             updateItem(idx, "product_id", p.id);
-                                            updateItem(idx, "description", p.name);
+                                            updateItem(
+                                                idx, "description",
+                                                p.part_number ? `${p.part_number} — ${p.name}` : p.name,
+                                            );
                                             updateItem(idx, "unit_price_kes", kshInput(p.price_kes));
                                             // Picking a part on the last row opens a fresh
                                             // empty row right away, so adding several parts
@@ -395,7 +534,16 @@ export default function ProformaInvoicesPage() {
                                 </div>
                             ))}
                         </div>
-                        <button onClick={addItem} className="mt-2 text-xs text-blue-600 hover:underline">+ Add line item</button>
+                        <div className="flex items-center gap-4 mt-2">
+                            <button onClick={addItem} className="text-xs text-blue-600 hover:underline">+ Add blank line item</button>
+                            <button
+                                onClick={() => setAddPartModalOpen(true)}
+                                className="glass-btn text-xs px-3 py-1.5 flex items-center gap-1.5"
+                            >
+                                <Search size={12} />
+                                Add Part
+                            </button>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -545,6 +693,12 @@ export default function ProformaInvoicesPage() {
                     })}
                 </div>
             )}
+
+            <AddPartModal
+                open={addPartModalOpen}
+                onClose={() => setAddPartModalOpen(false)}
+                onAdd={handleAddPartFromModal}
+            />
         </div>
     );
 }

@@ -143,12 +143,14 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     only slowed them down. Any other account (customer, driver, branch or
     inventory manager) is rejected outright: this system isn't for them.
     """
+       identifier = body.identifier.strip()
     result = await db.execute(
         select(User).where(
-            or_(User.phone == body.identifier, User.email == body.identifier)
+            or_(User.phone == identifier, func.lower(User.email) == identifier.lower())
         )
     )
     user = result.scalar_one_or_none()
+    
 
     if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
         raise UnauthorizedError("Invalid credentials")

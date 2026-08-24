@@ -8,9 +8,38 @@ import { ArrowLeft, Upload, X, Loader2 } from "lucide-react";
 
 const emptyForm = {
     name: "", sku: "", part_number: "", slug: "", description: "", short_description: "",
-    price_kes: "", compare_price_kes: "", category_id: "", brand_id: "",
-    unit: "", unit_value: "", thumbnail_url: "", status: "ACTIVE",
+    price_kes: "", category_id: "", brand_id: "",
+    unit: "pieces", unit_value: "", thumbnail_url: "", status: "ACTIVE",
 };
+
+const inp = "w-full px-3.5 py-2.5 text-sm bg-white/70 backdrop-blur-sm border border-white/70 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400";
+const inpDisabled = "w-full px-3.5 py-2.5 text-sm bg-gray-100 border border-gray-200 rounded-xl text-gray-500 cursor-not-allowed";
+
+// Defined at module scope (not inside ProductFormContent) so React sees the
+// same component type across renders instead of a brand-new one on every
+// keystroke. Redefining it inline was remounting every input on each
+// render, which dropped focus after each character and made typing feel
+// like it only accepted one letter at a time.
+function FormField({
+    label, k, type = "text", ph = "", disabled = false, value, onChange,
+}: {
+    label: string; k: string; type?: string; ph?: string; disabled?: boolean;
+    value: string; onChange: (k: string, value: string) => void;
+}) {
+    return (
+        <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
+            <input
+                type={type}
+                value={value}
+                disabled={disabled}
+                onChange={(e) => onChange(k, e.target.value)}
+                placeholder={ph}
+                className={disabled ? inpDisabled : inp}
+            />
+        </div>
+    );
+}
 
 function ProductFormContent() {
     const router = useRouter();
@@ -44,10 +73,9 @@ function ProductFormContent() {
             description: existingProduct.description ?? "",
             short_description: existingProduct.short_description ?? "",
             price_kes: existingProduct.price_kes ? (existingProduct.price_kes / 100).toString() : "",
-            compare_price_kes: existingProduct.compare_price_kes ? (existingProduct.compare_price_kes / 100).toString() : "",
             category_id: existingProduct.category?.id ?? "",
             brand_id: existingProduct.brand?.id ?? "",
-            unit: existingProduct.unit ?? "",
+            unit: "pieces",
             unit_value: existingProduct.unit_value?.toString() ?? "",
             thumbnail_url: existingProduct.thumbnail_url ?? "",
             status: (existingProduct.status ?? "active").toUpperCase(),
@@ -121,10 +149,9 @@ function ProductFormContent() {
                 description: form.description || null,
                 short_description: form.short_description || null,
                 price_kes: Math.round(parseFloat(form.price_kes) * 100),
-                compare_price_kes: form.compare_price_kes ? Math.round(parseFloat(form.compare_price_kes) * 100) : null,
                 category_id: form.category_id || null,
                 brand_id: form.brand_id || null,
-                unit: form.unit || null,
+                unit: "pieces",
                 unit_value: form.unit_value ? parseFloat(form.unit_value) : null,
                 thumbnail_url: form.thumbnail_url || "",
                 status: form.status,
@@ -135,10 +162,9 @@ function ProductFormContent() {
                 description: form.description || null,
                 short_description: form.short_description || null,
                 price_kes: Math.round(parseFloat(form.price_kes) * 100),
-                compare_price_kes: form.compare_price_kes ? Math.round(parseFloat(form.compare_price_kes) * 100) : null,
                 category_id: form.category_id || null,
                 brand_id: form.brand_id || null,
-                unit: form.unit || null,
+                unit: "pieces",
                 unit_value: form.unit_value ? parseFloat(form.unit_value) : null,
                 thumbnail_url: form.thumbnail_url || null,
                 status: form.status,
@@ -146,14 +172,7 @@ function ProductFormContent() {
         }
     };
 
-    const inp = "w-full px-3.5 py-2.5 text-sm bg-white/70 backdrop-blur-sm border border-white/70 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400";
-    const inpDisabled = "w-full px-3.5 py-2.5 text-sm bg-gray-100 border border-gray-200 rounded-xl text-gray-500 cursor-not-allowed";
-    const F = ({ label, k, type = "text", ph = "", disabled = false }: { label: string; k: keyof typeof form; type?: string; ph?: string; disabled?: boolean }) => (
-        <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
-            <input type={type} value={form[k]} disabled={disabled} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} placeholder={ph} className={disabled ? inpDisabled : inp} />
-        </div>
-    );
+    const setField = (k: string, value: string) => setForm((f) => ({ ...f, [k]: value }));
 
     if (isEditing && loadingProduct) {
         return (
@@ -172,12 +191,12 @@ function ProductFormContent() {
 
             <div className="glass-card p-6 space-y-4">
                 <h2 className="font-semibold text-gray-800">Basic Info</h2>
-                <F label="Product Name *" k="name" ph="e.g. Brookside Milk 500ml" />
-                <F label="Part Number" k="part_number" ph="e.g. F4.020.292" />
-                <F label="SKU *" k="sku" ph="e.g. MILK-BS-500" disabled={isEditing} />
-                <F label="Slug" k="slug" ph="e.g. brookside-milk-500ml" disabled={isEditing} />
+                <FormField label="Product Name *" k="name" ph="e.g. Brookside Milk 500ml" value={form.name} onChange={setField} />
+                <FormField label="Part Number" k="part_number" ph="e.g. F4.020.292" value={form.part_number} onChange={setField} />
+                <FormField label="SKU *" k="sku" ph="e.g. MILK-BS-500" disabled={isEditing} value={form.sku} onChange={setField} />
+                <FormField label="Slug" k="slug" ph="e.g. brookside-milk-500ml" disabled={isEditing} value={form.slug} onChange={setField} />
                 {isEditing && <p className="text-xs text-gray-400 -mt-2">SKU and slug can't be changed after a product is created.</p>}
-                <F label="Short Description" k="short_description" ph="One-line summary" />
+                <FormField label="Short Description" k="short_description" ph="One-line summary" value={form.short_description} onChange={setField} />
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
                     <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Full product description..." rows={3} className={`${inp} resize-none`} />
@@ -186,11 +205,8 @@ function ProductFormContent() {
 
             <div className="glass-card p-6 space-y-4">
                 <h2 className="font-semibold text-gray-800">Pricing</h2>
-                <div className="grid grid-cols-2 gap-4">
-                    <F label="Price (KES) *" k="price_kes" type="number" ph="e.g. 65" />
-                    <F label="Compare Price (KES)" k="compare_price_kes" type="number" ph="e.g. 80" />
-                </div>
-                <p className="text-xs text-gray-400">Enter prices in KES (e.g. 65 for KES 65.00). Compare price shows a strikethrough discount.</p>
+                <FormField label="Price (KES) *" k="price_kes" type="number" ph="e.g. 65" value={form.price_kes} onChange={setField} />
+                <p className="text-xs text-gray-400">Enter prices in KES (e.g. 65 for KES 65.00).</p>
             </div>
 
             <div className="glass-card p-6 space-y-4">
@@ -210,8 +226,11 @@ function ProductFormContent() {
                     </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                    <F label="Unit" k="unit" ph="e.g. ml, kg, pcs" />
-                    <F label="Unit Value" k="unit_value" type="number" ph="e.g. 500" />
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Unit</label>
+                        <div className={inpDisabled}>Pieces</div>
+                    </div>
+                    <FormField label="Unit Value" k="unit_value" type="number" ph="e.g. 500" value={form.unit_value} onChange={setField} />
                 </div>
             </div>
 

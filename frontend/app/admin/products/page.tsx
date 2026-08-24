@@ -22,10 +22,11 @@ export default function AdminProductsPage() {
     const { selectedBranchId } = useAdminBranchStore();
     const { addPart } = usePendingPiStore();
     const { user } = useAuthStore();
-    // Secretaries get this page to search parts for a proforma invoice, not
-    // to manage the catalog — creating/editing/activating products stays
-    // with super_admin and director (see require_manager on the backend).
-    const canManageCatalog = user?.role === "super_admin" || user?.role === "director";
+    // Secretaries manage the catalogue too (adding parts, correcting stock,
+    // etc.) — the backend already allows this via require_catalog_manager,
+    // so the frontend gate mirrors that instead of blocking them.
+    const canManageCatalog =
+        user?.role === "super_admin" || user?.role === "director" || user?.role === "secretary";
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
     const [page, setPage] = useState(1);
@@ -155,9 +156,6 @@ export default function AdminProductsPage() {
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <p className="font-bold text-gray-900">KES {(p.price_kes / 100).toLocaleString()}</p>
-                                            {p.compare_price_kes && p.compare_price_kes > p.price_kes && (
-                                                <p className="text-xs text-gray-400 line-through">KES {(p.compare_price_kes / 100).toLocaleString()}</p>
-                                            )}
                                         </td>
                                         <td className="px-4 py-3 text-center">
                                             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${STATUS_STYLE[p.status] ?? "bg-gray-100 text-gray-500"}`}>

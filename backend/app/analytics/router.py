@@ -16,11 +16,16 @@ from app.products.models import (
 from app.purchases.models import Purchase, PurchaseStatus, Expense
 from app.proforma.models import ProformaInvoice, ProformaInvoiceItem, ProformaStatus
 from app.analytics.schemas import (
-    StockMovementOut, TopPartRow, AnalyticsSummary,
+    StockMovementOut, TopPartRow, GoodsReceivedRow, AnalyticsSummary,
     StockStatusPart, StockStatusCategory, StockStatusReport, CustomerPurchaseRow,
 )
-from app.analytics.excel_export import render_analytics_excel, render_stock_status_excel
-from app.analytics.pdf import render_stock_status_pdf, render_customer_purchases_pdf, render_summary_pdf
+from app.analytics.excel_export import (
+    render_analytics_excel, render_stock_status_excel, render_goods_received_excel,
+)
+from app.analytics.pdf import (
+    render_stock_status_pdf, render_customer_purchases_pdf, render_summary_pdf,
+    render_goods_received_pdf,
+)
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -210,6 +215,76 @@ async def get_top_parts(
                    quantity_moved=r.qty or 0, value_moved=r.value or 0)
         for r in result.all()
     ]
+
+
+@router.get("/goods-received", response_model=List[GoodsReceivedRow])
+async def get_goods_received(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_director),
+    start: Optional[datetime] = Query(None),
+    end: Optional[datetime] = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """Per-product breakdown of new stock added in the period — a received
+    Purchase Order (goods_received) or a manual "+" on Inventory
+    (stock_take, quantity_delta > 0) — so a director can see exactly which
+    part came in and how much, instead of one combined total."""
+    q = select(
+        Product.id, Product.name, Product.sku, Product.part_number,
+        func.sum(StockMovement.quantity_delta).label("qty"),
+        func.sum(StockMovement.quantity_delta * Product.price_kes).label("value"),
+        func.max(StockMovement.created_at).label("last_received_at"),
+    ).join(Product, StockMovement.product_id == Product.id).where(
+        (StockMovement.reason == StockMovementReason.GOODS_RECEIVED) |
+        ((StockMovement.reason == StockMovementReason.STOCK_TAKE) &
+         (StockMovement.quantity_delta > 0))
+    ).group_by(Product.id, Product.name, Product.sku, Product.part_number)
+    q = _period_filter(q, StockMovement.created_at, start, end)
+    q = q.order_by(func.max(StockMovement.created_at).desc()).limit(limit)
+
+    result = await db.execute(q)
+    return [
+        GoodsReceivedRow(
+            product_id=r.id, product_name=r.name, sku=r.sku,
+            part_number=r.part_number,
+            quantity_received=r.qty or 0, value_received=r.value or 0,
+            last_received_at=r.last_received_at,
+        )
+        for r in result.all()
+    ]
+
+
+@router.get("/goods-received/export/excel")
+async def export_goods_received_excel(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_director),
+    start: Optional[datetime] = Query(None),
+    end: Optional[datetime] = Query(None),
+):
+    rows = await get_goods_received(db=db, _=current_user, start=start, end=end, limit=1000)
+    xlsx_bytes = render_goods_received_excel(rows)
+    filename = f"printex-goods-received-{datetime.now(timezone.utc).date()}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/goods-received/pdf")
+async def export_goods_received_pdf(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_director),
+    start: Optional[datetime] = Query(None),
+    end: Optional[datetime] = Query(None),
+):
+    rows = await get_goods_received(db=db, _=current_user, start=start, end=end, limit=1000)
+    pdf_bytes = render_goods_received_pdf(rows)
+    filename = f"printex-goods-received-{datetime.now(timezone.utc).date()}.pdf"
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.get("/stock-status", response_model=StockStatusReport)

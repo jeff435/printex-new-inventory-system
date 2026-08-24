@@ -27,6 +27,22 @@ class TopPartRow(BaseModel):
     value_moved: Decimal
 
 
+class GoodsReceivedRow(BaseModel):
+    """One product's share of 'new stock added' in the period — combines a
+    received Purchase Order (reason=goods_received) and a manual "+" on the
+    Inventory page (reason=stock_take, quantity_delta > 0) into a single
+    per-product line, so a director can see exactly which part came in
+    (e.g. "Pneumatic Valve M2.81.61/22 — 40 units") instead of one lump
+    total that says nothing about which parts moved."""
+    product_id: str
+    product_name: str
+    sku: str
+    part_number: Optional[str] = None
+    quantity_received: int
+    value_received: Decimal
+    last_received_at: Optional[datetime] = None
+
+
 class AnalyticsSummary(BaseModel):
     period_start: Optional[datetime]
     period_end: Optional[datetime]

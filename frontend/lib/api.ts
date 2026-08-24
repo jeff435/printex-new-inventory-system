@@ -223,6 +223,12 @@ export const analyticsApi = {
     api.get("/analytics/customer-purchases", { params }),
   topParts: (params?: Record<string, unknown>) =>
     api.get("/analytics/top-parts", { params }),
+  goodsReceived: (params?: Record<string, unknown>) =>
+    api.get("/analytics/goods-received", { params }),
+  goodsReceivedExcelBlob: (params?: Record<string, unknown>) =>
+    api.get("/analytics/goods-received/export/excel", { params, responseType: "blob" }),
+  goodsReceivedPdfBlob: (params?: Record<string, unknown>) =>
+    api.get("/analytics/goods-received/pdf", { params, responseType: "blob" }),
   stockMovements: (params?: Record<string, unknown>) =>
     api.get("/analytics/stock-movements", { params }),
   stockStatusPdfBlob: (params?: Record<string, unknown>) =>

@@ -124,6 +124,41 @@ def render_analytics_excel(
     return buf.getvalue()
 
 
+def render_goods_received_excel(rows: list) -> bytes:
+    """rows: list of app.analytics.schemas.GoodsReceivedRow — new stock
+    added in the period, one row per product."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Goods Received"
+    headers = ["Part No.", "Product", "SKU", "Qty Added", "Value Added (KES)", "Last Received"]
+    ws.append(headers)
+    _style_header(ws, ncols=len(headers))
+    for r in rows:
+        ws.append([
+            r.part_number or "", r.product_name, r.sku,
+            r.quantity_received, float(r.value_received),
+            r.last_received_at.strftime("%Y-%m-%d %H:%M") if r.last_received_at else "",
+        ])
+    for col, width in zip("ABCDEF", (18, 34, 16, 12, 18, 18)):
+        ws.column_dimensions[col].width = width
+
+    if rows:
+        n = len(rows)
+        bar = BarChart()
+        bar.title = "Goods Received by Part (Qty)"
+        bar.y_axis.title = "Qty Added"
+        data_ref = Reference(ws, min_col=4, min_row=1, max_row=1 + n)
+        cats_ref = Reference(ws, min_col=2, min_row=2, max_row=1 + n)
+        bar.add_data(data_ref, titles_from_data=True)
+        bar.set_categories(cats_ref)
+        bar.width, bar.height = 18, 10
+        ws.add_chart(bar, "H2")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def render_stock_status_excel(report, customer_rows: list | None = None) -> bytes:
     """report: an app.analytics.schemas.StockStatusReport (or None if this
     call is only exporting customer_rows). customer_rows: a list of

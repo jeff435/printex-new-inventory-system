@@ -5,7 +5,7 @@ import { analyticsApi } from "@/lib/api";
 import {
     TrendingUp, TrendingDown, DollarSign, Warehouse, AlertTriangle,
     PackageX, ShoppingCart, Receipt, Sparkles, FileSpreadsheet,
-    BarChart3, ListOrdered, Loader2, Printer, Download,
+    BarChart3, ListOrdered, Loader2, Printer, Download, PackagePlus,
 } from "lucide-react";
 import {
     ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -91,8 +91,10 @@ function buildSummaryCsv(summary: any, topParts: any[] | undefined, rangeLabel: 
 
 export default function DirectorAnalyticsPage() {
     const [rangeLabel, setRangeLabel] = useState<keyof typeof RANGES>("30D");
-    const [activeTab, setActiveTab] = useState<"overview" | "top-parts" | "ledger">("overview");
+    const [activeTab, setActiveTab] = useState<"overview" | "top-parts" | "goods" | "ledger">("overview");
     const [exporting, setExporting] = useState(false);
+    const [goodsExporting, setGoodsExporting] = useState(false);
+    const [goodsDownloading, setGoodsDownloading] = useState(false);
 
     const { start, end } = useMemo(() => rangeToDates(RANGES[rangeLabel]), [rangeLabel]);
 
@@ -111,6 +113,15 @@ export default function DirectorAnalyticsPage() {
         queryKey: ["analytics-stock-movements", start, end],
         queryFn: () => analyticsApi.stockMovements({ start, end, limit: 200 }).then((r) => r.data),
         enabled: activeTab === "ledger",
+    });
+
+    // Per-product breakdown of new stock added this period (goods received +
+    // manual "+" adds) — so a director sees exactly which part came in
+    // instead of one lump total.
+    const { data: goodsReceived, isLoading: goodsLoading } = useQuery({
+        queryKey: ["analytics-goods-received", start, end],
+        queryFn: () => analyticsApi.goodsReceived({ start, end, limit: 200 }).then((r) => r.data),
+        enabled: activeTab === "goods",
     });
 
     const handleExport = async () => {
@@ -152,6 +163,62 @@ export default function DirectorAnalyticsPage() {
         const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
         downloadBlob(blob, `printex-analytics-summary-${new Date().toISOString().slice(0, 10)}.csv`);
         toast.success("Summary downloaded");
+    };
+
+    // Goods Received section — its own Print / Export to Excel / Download PDF,
+    // independent of the page-wide buttons above.
+    const handleGoodsPrint = () => window.print();
+
+    const handleGoodsExportExcel = async () => {
+        setGoodsExporting(true);
+        try {
+            const res = await analyticsApi.goodsReceivedExcelBlob({ start, end });
+            const filename = `printex-goods-received-${new Date().toISOString().slice(0, 10)}.xlsx`;
+            downloadBlob(res.data, filename);
+            toast.success("Goods received report downloaded");
+        } catch (err: any) {
+            let message = "Failed to export report";
+            const data = err?.response?.data;
+            if (data instanceof Blob) {
+                try {
+                    const text = await data.text();
+                    message = JSON.parse(text)?.detail || JSON.parse(text)?.message || message;
+                } catch {
+                    // body wasn't JSON — keep the generic message
+                }
+            } else if (data?.message || data?.detail) {
+                message = data.message || data.detail;
+            }
+            toast.error(message);
+        } finally {
+            setGoodsExporting(false);
+        }
+    };
+
+    const handleGoodsDownloadPdf = async () => {
+        setGoodsDownloading(true);
+        try {
+            const res = await analyticsApi.goodsReceivedPdfBlob({ start, end });
+            const filename = `printex-goods-received-${new Date().toISOString().slice(0, 10)}.pdf`;
+            downloadBlob(res.data, filename);
+            toast.success("Goods received PDF downloaded");
+        } catch (err: any) {
+            let message = "Failed to download PDF";
+            const data = err?.response?.data;
+            if (data instanceof Blob) {
+                try {
+                    const text = await data.text();
+                    message = JSON.parse(text)?.detail || JSON.parse(text)?.message || message;
+                } catch {
+                    // body wasn't JSON — keep the generic message
+                }
+            } else if (data?.message || data?.detail) {
+                message = data.message || data.detail;
+            }
+            toast.error(message);
+        } finally {
+            setGoodsDownloading(false);
+        }
     };
 
     const netPositive = Number(summary?.net_movement_value ?? 0) >= 0;
@@ -226,6 +293,7 @@ export default function DirectorAnalyticsPage() {
                 {[
                     { id: "overview", label: "Overview", icon: BarChart3 },
                     { id: "top-parts", label: "Top Moving Parts", icon: TrendingUp },
+                    { id: "goods", label: "Goods Received", icon: PackagePlus },
                     { id: "ledger", label: "Stock Movement Ledger", icon: ListOrdered },
                 ].map((tab) => {
                     const Icon = tab.icon;
@@ -377,6 +445,77 @@ export default function DirectorAnalyticsPage() {
                                 ))}
                             </tbody>
                         </table>
+                    )}
+                </div>
+            )}
+
+            {activeTab === "goods" && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-5 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-900">Goods Received</h2>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                                New stock added this period, broken down by part — a received Purchase Order or a manual "+" on Inventory
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap print:hidden">
+                            <button
+                                onClick={handleGoodsPrint}
+                                className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all"
+                            >
+                                <Printer size={13} /> Print
+                            </button>
+                            <button
+                                onClick={handleGoodsExportExcel}
+                                disabled={goodsExporting}
+                                className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
+                            >
+                                {goodsExporting ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />}
+                                {goodsExporting ? "Preparing…" : "Export to Excel"}
+                            </button>
+                            <button
+                                onClick={handleGoodsDownloadPdf}
+                                disabled={goodsDownloading}
+                                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all"
+                            >
+                                {goodsDownloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                {goodsDownloading ? "Preparing…" : "Download PDF"}
+                            </button>
+                        </div>
+                    </div>
+                    {goodsLoading ? (
+                        <p className="text-sm text-gray-400 py-10 text-center">Loading…</p>
+                    ) : !goodsReceived || goodsReceived.length === 0 ? (
+                        <p className="text-sm text-gray-400 py-10 text-center">No new stock recorded in this period.</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-gray-400 text-xs border-b border-gray-100">
+                                        <th className="px-5 py-2.5 font-medium">Part No.</th>
+                                        <th className="px-5 py-2.5 font-medium">Part / Description</th>
+                                        <th className="px-5 py-2.5 font-medium">SKU</th>
+                                        <th className="px-5 py-2.5 font-medium text-right">Qty Added</th>
+                                        <th className="px-5 py-2.5 font-medium text-right">Value Added</th>
+                                        <th className="px-5 py-2.5 font-medium">Last Received</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {goodsReceived.map((g: any) => (
+                                        <tr key={g.product_id} className="border-b border-gray-50 text-gray-700">
+                                            <td className="px-5 py-2.5 font-mono text-xs text-blue-600">{g.part_number || "—"}</td>
+                                            <td className="px-5 py-2.5">{g.product_name}</td>
+                                            <td className="px-5 py-2.5 font-mono text-xs text-gray-500">{g.sku}</td>
+                                            <td className="px-5 py-2.5 text-right font-semibold text-green-600">+{g.quantity_received}</td>
+                                            <td className="px-5 py-2.5 text-right font-semibold">{kes(g.value_received)}</td>
+                                            <td className="px-5 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                                                {g.last_received_at ? new Date(g.last_received_at).toLocaleDateString() : "—"}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     )}
                 </div>
             )}

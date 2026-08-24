@@ -201,7 +201,51 @@ def datetime_now_str() -> str:
     return datetime.now(timezone.utc).strftime("%d %b %Y %H:%M")
 
 
-def render_customer_purchases_pdf(rows) -> bytes:
+def render_goods_received_pdf(rows) -> bytes:
+    """rows: list of app.analytics.schemas.GoodsReceivedRow — new stock added
+    in the period, broken down by product so a director can see exactly
+    which part came in (not just a combined total)."""
+    buf = io.BytesIO()
+    styles = getSampleStyleSheet()
+    doc = _base_doc(buf, "Goods Received Report")
+    story = []
+    _header(story, styles, "Goods Received Report",
+            f"New stock added this period, by part · Generated {datetime_now_str()}")
+
+    cell, hdr, num, num_hdr = _cell_styles(styles)
+    data = [[
+        Paragraph("Part No.", hdr), Paragraph("Part / Description", hdr),
+        Paragraph("SKU", hdr), Paragraph("Qty Added", num_hdr),
+        Paragraph("Value Added (KES)", num_hdr), Paragraph("Last Received", hdr),
+    ]]
+    for r in rows:
+        last = r.last_received_at.strftime("%d %b %Y") if r.last_received_at else "—"
+        data.append([
+            Paragraph(_esc(r.part_number or "—"), cell),
+            Paragraph(_esc(r.product_name), cell),
+            Paragraph(_esc(r.sku), cell),
+            Paragraph(str(r.quantity_received), num),
+            Paragraph(f"{float(r.value_received):,.2f}", num),
+            Paragraph(last, cell),
+        ])
+    if len(data) == 1:
+        story.append(Paragraph("No new stock recorded in this period.", styles["Normal"]))
+    else:
+        tbl = Table(data, colWidths=[26*mm, 46*mm, 24*mm, 20*mm, 30*mm, 28*mm], repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GREY]),
+            ("GRID", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(tbl)
+
+    doc.build(story)
+    return buf.getvalue()
     """rows: list of app.analytics.schemas.CustomerPurchaseRow"""
     buf = io.BytesIO()
     styles = getSampleStyleSheet()

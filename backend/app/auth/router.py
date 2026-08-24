@@ -143,7 +143,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     only slowed them down. Any other account (customer, driver, branch or
     inventory manager) is rejected outright: this system isn't for them.
     """
-       identifier = body.identifier.strip()
+    identifier = body.identifier.strip()
     result = await db.execute(
         select(User).where(
             or_(User.phone == identifier, func.lower(User.email) == identifier.lower())

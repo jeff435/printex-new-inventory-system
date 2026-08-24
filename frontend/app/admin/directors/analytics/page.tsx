@@ -68,6 +68,8 @@ function buildSummaryCsv(summary: any, topParts: any[] | undefined, rangeLabel: 
         ["Out of Stock Parts", String(summary?.out_of_stock_parts ?? 0)],
         ["Goods Received (Value)", kes(summary?.goods_received_value)],
         ["Goods Received (Units)", String(summary?.goods_received_qty ?? 0)],
+        ["Manual Stock Added (Value)", kes(summary?.manual_stock_added_value)],
+        ["Manual Stock Added (Units)", String(summary?.manual_stock_added_qty ?? 0)],
         ["Sales / Stock Out (Value)", kes(summary?.sales_value)],
         ["Sales / Stock Out (Units)", String(summary?.sales_qty ?? 0)],
         ["Purchases Received", kes(summary?.total_purchases_value)],
@@ -264,6 +266,13 @@ export default function DirectorAnalyticsPage() {
                     sub={summaryLoading ? "" : `${summary?.goods_received_qty ?? 0} units in this period`}
                 />
                 <KpiCard
+                    label="Manual Stock Added"
+                    value={summaryLoading ? null : kes(summary?.manual_stock_added_value)}
+                    icon={<Warehouse size={16} />}
+                    color="teal"
+                    sub={summaryLoading ? "" : `${summary?.manual_stock_added_qty ?? 0} units added via Inventory "+"`}
+                />
+                <KpiCard
                     label="Sales (Stock Out)"
                     value={summaryLoading ? null : kes(summary?.sales_value)}
                     icon={<Receipt size={16} />}
@@ -289,7 +298,7 @@ export default function DirectorAnalyticsPage() {
                     value={summaryLoading ? null : kes(summary?.net_movement_value)}
                     icon={netPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
                     color={netPositive ? "green" : "red"}
-                    sub="Sales value − goods received value"
+                    sub="Sales value − (goods received + manual stock added)"
                 />
                 <KpiCard
                     label="Parts Out of Stock"

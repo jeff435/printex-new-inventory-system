@@ -39,6 +39,8 @@ def render_analytics_excel(
         ("Total stock value (KES)", float(summary.get("total_stock_value", 0))),
         ("Goods received qty (period)", summary.get("goods_received_qty", 0)),
         ("Goods received value (KES)", float(summary.get("goods_received_value", 0))),
+        ("Manual stock added qty (period)", summary.get("manual_stock_added_qty", 0)),
+        ("Manual stock added value (KES)", float(summary.get("manual_stock_added_value", 0))),
         ("Sales qty (period)", summary.get("sales_qty", 0)),
         ("Sales value (KES)", float(summary.get("sales_value", 0))),
         ("Total purchases value (KES)", float(summary.get("total_purchases_value", 0))),
@@ -55,6 +57,7 @@ def render_analytics_excel(
     chart_data_ws.append(["Category", "Value (KES)"])
     chart_rows = [
         ("Goods Received", float(summary.get("goods_received_value", 0))),
+        ("Manual Stock Added", float(summary.get("manual_stock_added_value", 0))),
         ("Sales", float(summary.get("sales_value", 0))),
         ("Purchases", float(summary.get("total_purchases_value", 0))),
         ("Expenses", float(summary.get("total_expenses", 0))),

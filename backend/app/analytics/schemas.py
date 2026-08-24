@@ -36,6 +36,15 @@ class AnalyticsSummary(BaseModel):
     total_stock_value: Decimal
     goods_received_value: Decimal
     goods_received_qty: int
+    # Stock added by a manual "+" on the Inventory page (reason=stock_take,
+    # positive delta) rather than a received Purchase Order — e.g. a
+    # physical count correction or stock added without going through
+    # Purchases. Counted separately from goods_received_value because it
+    # has no supplier/cost tied to it, but it still needs to be reflected
+    # here or "new stock" added this way silently never shows up in the
+    # summary or Net Stock Movement figure.
+    manual_stock_added_value: Decimal = Decimal("0")
+    manual_stock_added_qty: int = 0
     sales_value: Decimal
     sales_qty: int
     total_expenses: Decimal

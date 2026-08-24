@@ -77,6 +77,24 @@ async def get_summary(
     sale_qty, sale_value = (await db.execute(
         movement_qty_value(StockMovementReason.SALE, False))).one()
 
+    # Stock added manually on the Inventory page (the "+" button) is logged
+    # as reason=stock_take but with no sign recorded on the reason itself —
+    # only the movement's own quantity_delta says whether it was an add or
+    # a deduct. Restrict to quantity_delta > 0 so a manual deduction isn't
+    # counted as stock coming in.
+    manual_add_q = _period_filter(
+        select(
+            func.coalesce(func.sum(StockMovement.quantity_delta), 0),
+            func.coalesce(
+                func.sum(StockMovement.quantity_delta * Product.price_kes), 0),
+        ).join(Product, StockMovement.product_id == Product.id).where(
+            StockMovement.reason == StockMovementReason.STOCK_TAKE,
+            StockMovement.quantity_delta > 0,
+        ),
+        StockMovement.created_at, start, end,
+    )
+    manual_qty, manual_value = (await db.execute(manual_add_q)).one()
+
     purchases_q = _period_filter(
         select(func.coalesce(func.sum(Purchase.total_amount), 0)).where(
             Purchase.status == PurchaseStatus.RECEIVED),
@@ -90,7 +108,10 @@ async def get_summary(
     )
     total_expenses = (await db.execute(expenses_q)).scalar() or 0
 
-    net_movement = Decimal(sale_value or 0) - Decimal(gr_value or 0)
+    # Net movement = stock going out minus stock coming in, from any source
+    # (a received Purchase Order OR a manual "+" add on Inventory) — so a
+    # product added the manual way is no longer invisible to this figure.
+    net_movement = Decimal(sale_value or 0) - Decimal(gr_value or 0) - Decimal(manual_value or 0)
 
     pending_q = select(
         func.count(ProformaInvoice.id),
@@ -107,6 +128,8 @@ async def get_summary(
         total_stock_value=total_stock_value,
         goods_received_value=gr_value or 0,
         goods_received_qty=gr_qty or 0,
+        manual_stock_added_value=manual_value or 0,
+        manual_stock_added_qty=manual_qty or 0,
         sales_value=sale_value or 0,
         sales_qty=sale_qty or 0,
         total_expenses=total_expenses,

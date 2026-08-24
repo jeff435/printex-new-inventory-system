@@ -42,7 +42,7 @@ def render_proforma_excel(inv) -> bytes:
         ws[f"A{row}"].font = Font(bold=True, color=NAVY)
 
     header_row = 10
-    headers = ["#", "Description", "Qty", "Unit Price (KES)", "Line Total (KES)"]
+    headers = ["#", "Part No.", "Description", "Qty", "Unit Price (KES)", "Line Total (KES)"]
     for col, title in enumerate(headers, start=1):
         cell = ws.cell(row=header_row, column=col, value=title)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -53,14 +53,19 @@ def render_proforma_excel(inv) -> bytes:
     r = header_row + 1
     for idx, it in enumerate(inv.items, start=1):
         qty = float(it.quantity)
-        values = [idx, it.description, qty, _kes(it.unit_price_kes), _kes(it.line_total_kes)]
+        values = [idx, getattr(it, "part_number", None) or "—", it.description, qty,
+                  _kes(it.unit_price_kes), _kes(it.line_total_kes)]
         for col, val in enumerate(values, start=1):
             cell = ws.cell(row=r, column=col, value=val)
             cell.border = BORDER
             if r % 2 == 0:
                 cell.fill = PatternFill("solid", fgColor=LIGHT_GREY)
-            if col >= 3:
+            if col >= 4:
                 cell.alignment = Alignment(horizontal="right")
+            else:
+                # Long descriptions wrap inside the cell instead of spilling
+                # across the columns beside them when the sheet is printed.
+                cell.alignment = Alignment(vertical="top", wrap_text=(col == 3))
         r += 1
 
     r += 1
@@ -71,22 +76,22 @@ def render_proforma_excel(inv) -> bytes:
     totals.append(("Total", _kes(inv.total_kes)))
 
     for label, val in totals:
-        ws.cell(row=r, column=4, value=label).font = Font(bold=(label == "Total"), color=NAVY)
-        amount_cell = ws.cell(row=r, column=5, value=val)
+        ws.cell(row=r, column=5, value=label).font = Font(bold=(label == "Total"), color=NAVY)
+        amount_cell = ws.cell(row=r, column=6, value=val)
         amount_cell.alignment = Alignment(horizontal="right")
         if label == "Total":
             amount_cell.font = Font(bold=True, size=12, color=GREEN)
-            ws.cell(row=r, column=4).font = Font(bold=True, size=12, color=NAVY)
+            ws.cell(row=r, column=5).font = Font(bold=True, size=12, color=NAVY)
         r += 1
 
     if inv.notes:
         r += 1
         ws.cell(row=r, column=1, value="Notes:").font = Font(bold=True, color=NAVY)
         r += 1
-        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
         ws.cell(row=r, column=1, value=inv.notes)
 
-    widths = [6, 46, 8, 18, 18]
+    widths = [6, 20, 46, 8, 18, 18]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 

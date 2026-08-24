@@ -10,7 +10,10 @@ from slugify import slugify
 
 from app.products.inventory_excel import render_inventory_excel
 from app.database import get_db
-from app.core.deps import get_current_user, get_current_user_optional, require_manager, require_manager_or_director, require_staff
+from app.core.deps import (
+    get_current_user, get_current_user_optional,
+    require_catalog_manager, require_manager_or_director, require_staff,
+)
 from app.core.exceptions import NotFoundError, ConflictError, ValidationError
 from app.products.models import Product, ProductStatus, Category, Brand, InventoryItem, StockStatus, StockMovement, StockMovementReason
 from app.products.schemas import (
@@ -44,7 +47,7 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
 async def create_category(
     body: CategoryCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     slug = body.slug.strip() if body.slug else slugify(body.name)
     existing = await db.execute(select(Category).where(Category.slug == slug))
@@ -76,7 +79,7 @@ async def update_category(
     category_id: str,
     body: CategoryUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     cat = await db.get(Category, category_id)
     if not cat:
@@ -99,7 +102,7 @@ async def update_category(
 async def delete_category(
     category_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     cat = await db.get(Category, category_id)
     if not cat:
@@ -122,7 +125,7 @@ async def list_brands(db: AsyncSession = Depends(get_db)):
 async def create_brand(
     body: BrandCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     slug = body.slug.strip() if body.slug else slugify(body.name)
     existing = await db.execute(select(Brand).where(Brand.slug == slug))
@@ -251,7 +254,7 @@ async def get_product(slug_or_id: str, db: AsyncSession = Depends(get_db)):
 async def create_product(
     body: ProductCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     existing = await db.execute(select(Product).where(Product.sku == body.sku))
     if existing.scalar_one_or_none():
@@ -284,7 +287,7 @@ async def update_product(
     product_id: str,
     body: ProductUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     product = await db.get(Product, product_id)
     if not product:
@@ -319,7 +322,7 @@ async def update_product(
 async def delete_product(
     product_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     product = await db.get(Product, product_id)
     if not product:
@@ -404,6 +407,7 @@ async def export_inventory_excel(
     def as_dict(item):
         return {
             "sku": item.product.sku if item.product else "",
+            "part_number": (item.product.part_number if item.product else None) or "",
             "product_name": item.product.name if item.product else "",
             "branch_name": item.branch.name if item.branch else "",
             "quantity_on_hand": item.quantity_on_hand,
@@ -451,7 +455,7 @@ async def update_inventory(
     inventory_id: str,
     body: InventoryUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     item = await db.get(InventoryItem, inventory_id)
     if not item:
@@ -477,7 +481,7 @@ async def restock(
     branch_id: str,
     quantity: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     """Add stock to a branch. Creates inventory record if it doesn't exist."""
     result = await db.execute(

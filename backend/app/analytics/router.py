@@ -170,12 +170,12 @@ async def get_top_parts(
     limit: int = Query(15, ge=1, le=100),
 ):
     q = select(
-        Product.id, Product.name, Product.sku,
+        Product.id, Product.name, Product.sku, Product.part_number,
         func.sum(func.abs(StockMovement.quantity_delta)).label("qty"),
         func.sum(func.abs(StockMovement.quantity_delta)
                  * Product.price_kes).label("value"),
     ).join(Product, StockMovement.product_id == Product.id).group_by(
-        Product.id, Product.name, Product.sku
+        Product.id, Product.name, Product.sku, Product.part_number
     )
     q = _period_filter(q, StockMovement.created_at, start, end)
     q = q.order_by(func.sum(func.abs(StockMovement.quantity_delta)).desc()).limit(limit)
@@ -183,6 +183,7 @@ async def get_top_parts(
     result = await db.execute(q)
     return [
         TopPartRow(product_id=r.id, product_name=r.name, sku=r.sku,
+                   part_number=r.part_number,
                    quantity_moved=r.qty or 0, value_moved=r.value or 0)
         for r in result.all()
     ]
@@ -304,14 +305,21 @@ async def get_customer_purchases(
         select(
             ProformaInvoice.customer_name,
             ProformaInvoiceItem.product_id,
+            # The number snapshot onto the line when the PI was raised is the
+            # one the customer was actually quoted; fall back to the current
+            # catalogue only for older lines raised before that was recorded.
+            func.coalesce(ProformaInvoiceItem.part_number,
+                          Product.part_number).label("part_number"),
             ProformaInvoiceItem.description,
             func.sum(ProformaInvoiceItem.quantity).label("qty"),
             func.sum(ProformaInvoiceItem.line_total_kes).label("value"),
             func.count(func.distinct(ProformaInvoice.id)).label("purchase_count"),
         )
         .join(ProformaInvoiceItem, ProformaInvoiceItem.proforma_invoice_id == ProformaInvoice.id)
+        .outerjoin(Product, ProformaInvoiceItem.product_id == Product.id)
         .where(ProformaInvoice.status == ProformaStatus.CONVERTED)
         .group_by(ProformaInvoice.customer_name, ProformaInvoiceItem.product_id,
+                  ProformaInvoiceItem.part_number, Product.part_number,
                   ProformaInvoiceItem.description)
         .order_by(func.sum(ProformaInvoiceItem.line_total_kes).desc())
         .limit(limit)
@@ -326,6 +334,7 @@ async def get_customer_purchases(
         CustomerPurchaseRow(
             customer_name=r.customer_name,
             product_id=r.product_id,
+            part_number=r.part_number,
             description=r.description,
             total_quantity=r.qty,
             total_value_kes=int(r.value or 0),

@@ -19,8 +19,12 @@ STATUS_LABEL = {
     "IN_STOCK": "In stock",
 }
 
+# "Part No." is the manufacturer's catalogue number staff reorder against;
+# "SKU" is Printex's own internal stock code. The export used to carry only
+# the SKU, which made a printed inventory sheet useless for placing an order
+# with a supplier.
 HEADERS = [
-    "SKU", "Product", "Branch", "On Hand", "Reserved",
+    "SKU", "Part No.", "Product", "Branch", "On Hand", "Reserved",
     "Available", "Reorder Point", "Status",
 ]
 
@@ -39,6 +43,7 @@ def _write_sheet(ws, rows: list):
         available = max(0, item.get("quantity_on_hand", 0) - item.get("quantity_reserved", 0))
         ws.append([
             item.get("sku", ""),
+            item.get("part_number", "") or "—",
             item.get("product_name", ""),
             item.get("branch_name", ""),
             item.get("quantity_on_hand", 0),
@@ -52,7 +57,7 @@ def _write_sheet(ws, rows: list):
             for col in range(1, len(HEADERS) + 1):
                 ws.cell(row=ws.max_row, column=col).fill = fill
 
-    widths = (16, 34, 20, 10, 10, 10, 14, 14)
+    widths = (16, 20, 34, 20, 10, 10, 10, 14, 14)
     for i, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = width
 

@@ -17,6 +17,10 @@ import asyncio
 
 from sqlalchemy import select
 
+# Importing app.main registers every model on Base.metadata before the first
+# query runs — without it, User's relationships (orders, wallet, ...) fail to
+# configure and this script dies on the very first select().
+import app.main  # noqa: F401
 from app.database import AsyncSessionLocal
 from app.auth.models import User, UserRole, UserStatus
 from app.core.security import hash_password
@@ -29,7 +33,7 @@ DEFAULT_NAME = "System Admin"
 
 async def bootstrap_admin(email: str, password: str, full_name: str):
     async with AsyncSessionLocal() as db:
-        existing = await db.execute(select(User).where(User.role == UserRole.ADMIN))
+        existing = await db.execute(select(User).where(User.role == UserRole.SUPER_ADMIN))
         existing_admin = existing.scalar_one_or_none()
         if existing_admin:
             print(
@@ -42,7 +46,7 @@ async def bootstrap_admin(email: str, password: str, full_name: str):
             full_name=full_name,
             email=email,
             password_hash=hash_password(password),
-            role=UserRole.ADMIN,
+            role=UserRole.SUPER_ADMIN,
             status=UserStatus.ACTIVE,
         )
         db.add(admin)

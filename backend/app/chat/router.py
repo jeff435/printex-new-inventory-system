@@ -21,7 +21,12 @@ logger = logging.getLogger("printex.chat")
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+# os.environ["GROQ_API_KEY"] raised KeyError at IMPORT time. app/main.py
+# imports this module at the top, so on any deploy without GROQ_API_KEY set
+# (Render, staging, a fresh container) the whole FastAPI app failed to boot —
+# /auth/login included. The chatbot is an optional extra; it must never be
+# able to take the login endpoint down with it.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_TOOL_HOPS = 4
 MAX_MALFORMED_RETRIES = 2  # llama-3.3-70b-versatile occasionally emits malformed tool-call syntax; a retry usually clears it
@@ -30,7 +35,19 @@ MAX_MALFORMED_RETRIES = 2  # llama-3.3-70b-versatile occasionally emits malforme
 RATE_LIMIT_MAX_REQUESTS = 15
 RATE_LIMIT_WINDOW_SECONDS = 60
 
-client = AsyncGroq(api_key=GROQ_API_KEY)  # async client -- avoids blocking the event loop
+# async client -- avoids blocking the event loop. Built lazily: constructing
+# it at import time with an empty key is what coupled "no GROQ_API_KEY" to
+# "entire API is down".
+client: "AsyncGroq | None" = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+
+def _require_groq() -> AsyncGroq:
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="The assistant is not configured on this server (GROQ_API_KEY is unset).",
+        )
+    return client
 
 _LEAKED_TOOL_SYNTAX = re.compile(r"<function[^>]*>.*?</function>|<function[^>]*/?>", re.DOTALL)
 
@@ -127,13 +144,14 @@ async def _create_completion_with_retry(history: list[dict], use_tools: bool = T
     """Groq's llama-3.3-70b-versatile occasionally emits malformed tool-call
     syntax (tool_use_failed). Retry a couple of times; if it keeps happening,
     fall back to a plain completion (no tools) so the user still gets a reply."""
+    groq = _require_groq()
     last_exc: Exception | None = None
     for _ in range(MAX_MALFORMED_RETRIES):
         try:
             kwargs = dict(model=GROQ_MODEL, messages=history, max_tokens=500, temperature=0.1)
             if use_tools:
                 kwargs.update(tools=TOOL_SCHEMAS, tool_choice="auto")
-            return await client.chat.completions.create(**kwargs)
+            return await groq.chat.completions.create(**kwargs)
         except APIStatusError as exc:
             last_exc = exc
             logger.warning("APIStatusError on completion call: %s", exc)
@@ -143,7 +161,7 @@ async def _create_completion_with_retry(history: list[dict], use_tools: bool = T
     # Still failing after retries -- fall back to a tool-less completion so we
     # at least return something instead of a hard error.
     if use_tools:
-        return await client.chat.completions.create(
+        return await groq.chat.completions.create(
             model=GROQ_MODEL, messages=history, max_tokens=500, temperature=0.1
         )
     raise last_exc

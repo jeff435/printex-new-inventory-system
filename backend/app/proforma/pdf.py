@@ -45,6 +45,17 @@ PAYBILL = {"PAYBILL NUMBER": "880100", "ACCOUNT NUMBER": "051501", "NAME": "PRIN
 TILL = {"TILL NUMBER": "4977712", "ACCOUNT NAME": "PRINTEX ENGINEERS LTD"}
 
 
+def _esc(value) -> str:
+    """Escape text before it goes into a Paragraph.
+
+    Paragraph parses its input as mini-HTML, so a description containing
+    "<", ">" or "&" — e.g. a part rated "<=250mm" — would either vanish or
+    raise a parse error mid-render. Everything user-entered goes through here.
+    """
+    return (str(value if value is not None else "")
+            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
 def _kes(cents: int) -> str:
     return f"{cents / 100:,.2f}"
 
@@ -92,7 +103,7 @@ def render_proforma_pdf(inv) -> bytes:
         Paragraph(line, addr_style) for line in COMPANY_ADDRESS_LINES
     ]
     invoice_meta = Paragraph(
-        f"<b>INVOICE NO:</b> {inv.pi_number}<br/><b>Date:</b> {created_at}", right_bold
+        f"<b>INVOICE NO:</b> {_esc(inv.pi_number)}<br/><b>Date:</b> {created_at}", right_bold
     )
     header_tbl = Table(
         [[company_block, invoice_meta]],
@@ -108,38 +119,61 @@ def render_proforma_pdf(inv) -> bytes:
 
     # ── Client ──────────────────────────────────────────────────────────
     story.append(Paragraph("<b>Client</b>", body))
-    story.append(Paragraph(inv.customer_name, body))
+    story.append(Paragraph(_esc(inv.customer_name), body))
     if inv.customer_phone:
-        story.append(Paragraph(inv.customer_phone, body))
+        story.append(Paragraph(_esc(inv.customer_phone), body))
     if inv.customer_email:
-        story.append(Paragraph(inv.customer_email, body))
+        story.append(Paragraph(_esc(inv.customer_email), body))
     story.append(Spacer(1, 12))
 
-    # ── Line items: Description | Quantity | @ | Total Amount ─────────────
-    item_rows = [["Description", "Quantity", "@", "Total Amount"]]
+    # ── Line items: Part No. | Description | Quantity | @ | Total Amount ──
+    #
+    # Every text cell is a Paragraph, never a bare string. reportlab draws a
+    # bare string on one unbroken line: it does not measure it against the
+    # column, so a long part description simply ran on past its cell and was
+    # overprinted by the Quantity and @ columns beside it — the "letters on
+    # top of each other" on printed invoices. A Paragraph wraps inside the
+    # column width and grows the row height instead.
+    cell = ParagraphStyle("cell", parent=styles["Normal"], fontSize=9,
+                          leading=11.5, textColor=BRAND_NAVY,
+                          wordWrap="CJK")
+    cell_hdr = ParagraphStyle("cell_hdr", parent=cell, fontName="Helvetica-Bold",
+                              textColor=colors.white)
+    cell_num = ParagraphStyle("cell_num", parent=cell, alignment=TA_RIGHT)
+    cell_num_hdr = ParagraphStyle("cell_num_hdr", parent=cell_hdr, alignment=TA_RIGHT)
+
+    item_rows = [[
+        Paragraph("Part No.", cell_hdr),
+        Paragraph("Description", cell_hdr),
+        Paragraph("Quantity", cell_num_hdr),
+        Paragraph("@", cell_num_hdr),
+        Paragraph("Total Amount", cell_num_hdr),
+    ]]
     for it in inv.items:
+        # part_number is snapshot onto the line when the PI is raised; older
+        # lines and free-text entries have none, and print as an em dash.
+        pn = getattr(it, "part_number", None) or "—"
         item_rows.append([
-            it.description,
-            _qty(it.quantity),
-            _kes(it.unit_price_kes),
-            _kes(it.line_total_kes),
+            Paragraph(_esc(pn), cell),
+            Paragraph(_esc(it.description), cell),
+            Paragraph(_qty(it.quantity), cell_num),
+            Paragraph(_kes(it.unit_price_kes), cell_num),
+            Paragraph(_kes(it.line_total_kes), cell_num),
         ])
 
     items_tbl = Table(
-        item_rows, colWidths=[92 * mm, 22 * mm, 30 * mm, 30 * mm],
+        item_rows, colWidths=[26 * mm, 62 * mm, 20 * mm, 30 * mm, 32 * mm],
         repeatRows=1,
     )
     items_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BRAND_NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GREY]),
         ("GRID", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
     story.append(items_tbl)
     story.append(Spacer(1, 4))
@@ -169,7 +203,7 @@ def render_proforma_pdf(inv) -> bytes:
 
     if inv.notes:
         story.append(Paragraph("<b>Notes</b>", body))
-        story.append(Paragraph(inv.notes, body))
+        story.append(Paragraph(_esc(inv.notes), body))
         story.append(Spacer(1, 12))
 
     story.append(HRFlowable(width="100%", thickness=0.75, color=BORDER_GREY))
@@ -204,7 +238,7 @@ def render_proforma_pdf(inv) -> bytes:
     story.append(Paragraph(
         f"This is a proforma invoice — a quotation, valid until "
         f"{inv.valid_until or 'the date agreed with your PRINTEX contact'}. "
-        f"Prepared by: {prepared_by}.",
+        f"Prepared by: {_esc(prepared_by)}.",
         small,
     ))
 

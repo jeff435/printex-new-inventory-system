@@ -15,6 +15,10 @@ hiredis==2.3.2
 
 # Auth
 python-jose[cryptography]==3.3.0
+# app/core/security.py imports `bcrypt` directly. It was only ever arriving as
+# a transitive extra of passlib, so any resolver change or a passlib bump could
+# have dropped it and broken every password check at import time. Pinned.
+bcrypt==4.1.3
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.9
 google-auth==2.29.0

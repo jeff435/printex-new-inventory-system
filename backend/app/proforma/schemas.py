@@ -6,6 +6,10 @@ from decimal import Decimal
 class ProformaItemCreate(BaseModel):
     product_id: Optional[str] = None
     description: str
+    # Optional. When the line links to a catalogue product the server fills
+    # this in from that product; supply it only for free-text lines that have
+    # no product_id but still need a number printed.
+    part_number: Optional[str] = None
     quantity: Decimal = Decimal("1")
     unit_price_kes: int = 0
 
@@ -94,6 +98,7 @@ class ProformaItemOut(BaseModel):
     id: str
     product_id: Optional[str]
     description: str
+    part_number: Optional[str] = None
     quantity: Decimal
     unit_price_kes: int
     line_total_kes: int

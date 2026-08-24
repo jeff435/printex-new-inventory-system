@@ -91,6 +91,13 @@ class ProformaInvoiceItem(Base):
         "products.id"), nullable=True)
     description = Column(String(500), nullable=False)
 
+    # Snapshot of the catalogue part number at the moment the line was
+    # raised. Stored on the line rather than read through `product` at print
+    # time for the same reason `description` is: the part may later be
+    # renumbered, superseded or deleted, and a reissued copy of an old
+    # invoice must still show the number the customer was actually quoted.
+    part_number = Column(String(100), nullable=True)
+
     quantity = Column(Numeric(10, 2), nullable=False, default=1)
     unit_price_kes = Column(Integer, nullable=False, default=0)
     line_total_kes = Column(Integer, nullable=False, default=0)

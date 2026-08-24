@@ -14,13 +14,30 @@ import axios, { AxiosError, AxiosRequestConfig } from "axios";
 // will then correctly call http://192.168.1.50:8000/api/v1 — no per-device
 // config needed. This only runs in the browser; on the server it falls
 // back to the env var (or localhost) since there's no window there.
+// Only ever derive the API host when the page itself was opened from a
+// localhost / private-LAN address. The previous version derived it whenever
+// NEXT_PUBLIC_API_URL was unset — which on Vercel meant the browser called
+// https://your-app.vercel.app:8000/api/v1. Nothing listens on port 8000 there,
+// so every request (login included) failed with a connection error and no
+// server log to explain it. On a public host we now fall back to the
+// configured value and warn loudly instead of guessing.
+const PRIVATE_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+
 function resolveApiUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL;
   const isLocalhostDefault =
     !configured || /^https?:\/\/localhost(:|\/|$)/.test(configured);
 
   if (typeof window !== "undefined" && isLocalhostDefault) {
-    return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
+    if (PRIVATE_HOST.test(window.location.hostname)) {
+      return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
+    }
+    console.error(
+      "NEXT_PUBLIC_API_URL is not set for this deployment. Set it to your " +
+        "Render backend URL (e.g. https://<service>.onrender.com/api/v1) in " +
+        "the Vercel project's Environment Variables and redeploy — API calls " +
+        "will fail until you do."
+    );
   }
   return configured || "http://localhost:8000/api/v1";
 }
@@ -78,8 +95,26 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as AxiosRequestConfig & { _retry?: boolean };
 
+    // The auth endpoints must never go through the refresh-and-redirect path.
+    //
+    // /auth/login legitimately answers 401 for a wrong password. This
+    // interceptor treated that like an expired session: with no refresh token
+    // in localStorage it called clearSessionAndRedirect(), which does a full
+    // `window.location.href = "/login"` page load. The form reset and the
+    // "Invalid credentials" toast was destroyed before it could paint — so a
+    // mistyped password looked exactly like "the login button does nothing".
+    // /auth/refresh is excluded for the obvious reason: refreshing a failed
+    // refresh is an infinite loop.
+    const url = original?.url ?? "";
+    const isAuthEndpoint =
+      url.includes("/auth/login") ||
+      url.includes("/auth/refresh") ||
+      url.includes("/auth/register") ||
+      url.includes("/auth/forgot-password") ||
+      url.includes("/auth/reset-password");
+
     // Only attempt refresh once, and only on 401
-    if (error.response?.status !== 401 || original._retry) {
+    if (error.response?.status !== 401 || original._retry || isAuthEndpoint) {
       return Promise.reject(error);
     }
 
@@ -132,6 +167,22 @@ export const authApi = {
 };
 
 // ── Staff (directors & secretaries) ─────────────────────────────────────────
+
+// User management — admin manages anyone, a director manages secretaries.
+// The list response includes `manageable_ids` so the UI can grey out rows the
+// signed-in user isn't allowed to touch rather than offering an action that
+// would come back 403.
+export const usersApi = {
+  list: (params?: Record<string, unknown>) => api.get("/auth/users", { params }),
+  updateRole: (id: string, role: string) => api.patch(`/auth/users/${id}`, { role }),
+  updateProfile: (id: string, data: { full_name?: string; phone?: string | null; email?: string | null }) =>
+    api.patch(`/auth/users/${id}/profile`, data),
+  updateStatus: (id: string, status: "active" | "inactive" | "suspended") =>
+    api.patch(`/auth/users/${id}/status`, { status }),
+  resetPassword: (id: string, new_password: string) =>
+    api.post(`/auth/users/${id}/reset-password`, { new_password }),
+  remove: (id: string) => api.delete(`/auth/users/${id}`),
+};
 
 export const staffApi = {
   // super_admin only

@@ -1,0 +1,11 @@
+{
+  "remoteName": "origin",
+  "projects": [
+    {
+      "id": "prj_4GFaPDi49lh67aiPYONsW9Cm9N16",
+      "name": "printex-new-inventory-system",
+      "directory": "frontend",
+      "orgId": "team_zdxfiOiVbLbSu2VxlDJOLPOI"
+    }
+  ]
+}

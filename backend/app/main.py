@@ -73,13 +73,24 @@ app.add_middleware(
     # aren't silently rejected by CORS while everything still requires a
     # valid login. It has no effect in production, where APP_ENV != "development"
     # and only the explicit ALLOWED_ORIGINS list is honoured.
+    # In production this used to be None, which meant ONLY the exact strings in
+    # ALLOWED_ORIGINS were accepted. Vercel gives every branch and every commit
+    # its own preview hostname (printex-abc123-you.vercel.app), none of which
+    # can be listed ahead of time — so every preview deploy failed CORS on the
+    # login request and looked like "the backend is down". The production
+    # branch matches *.vercel.app; the stable domain should still be listed
+    # explicitly in ALLOWED_ORIGINS.
     allow_origin_regex=(
-        r"^https?://(localhost|127\.0\.0\.1|"
-        r"(10(?:\.\d{1,3}){3})|"
-        r"(192\.168(?:\.\d{1,3}){2})|"
-        r"(172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})"
-        r")(:\d+)?$"
-    ) if settings.APP_ENV == "development" else None,
+        (
+            r"^https?://(localhost|127\.0\.0\.1|"
+            r"(10(?:\.\d{1,3}){3})|"
+            r"(192\.168(?:\.\d{1,3}){2})|"
+            r"(172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})"
+            r")(:\d+)?$"
+        )
+        if settings.APP_ENV == "development"
+        else r"^https://[a-z0-9-]+\.vercel\.app$"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -7,7 +7,7 @@ from PIL import Image, UnidentifiedImageError
 
 from app.auth.models import User
 from app.config import settings
-from app.core.deps import require_manager
+from app.core.deps import require_catalog_manager
 from app.core.exceptions import AppException, ValidationError
 from app.core.storage import get_r2_client, public_url_for_key
 
@@ -27,7 +27,7 @@ MAX_DIMENSION = 2000
 async def upload_image(
     file: UploadFile = File(...),
     folder: str = Query("products", description="products | categories | brands"),
-    _: User = Depends(require_manager),
+    _: User = Depends(require_catalog_manager),
 ):
     if folder not in ALLOWED_FOLDERS:
         raise ValidationError(

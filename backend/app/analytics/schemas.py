@@ -22,6 +22,7 @@ class TopPartRow(BaseModel):
     product_id: str
     product_name: str
     sku: str
+    part_number: Optional[str] = None
     quantity_moved: int
     value_moved: Decimal
 
@@ -79,6 +80,7 @@ class StockStatusReport(BaseModel):
 class CustomerPurchaseRow(BaseModel):
     customer_name: str
     product_id: Optional[str]
+    part_number: Optional[str] = None
     description: str
     total_quantity: Decimal
     total_value_kes: int

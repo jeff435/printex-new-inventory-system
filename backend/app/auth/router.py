@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, text
 from datetime import datetime, timezone
 from typing import Optional
 from google.oauth2 import id_token as google_id_token
@@ -23,6 +23,7 @@ from app.auth.schemas import (
     RefreshRequest, PasswordResetRequest, PasswordResetConfirm,
     TokenResponse, UserOut, UserAdminOut, UserRoleUpdate,
     AddressCreate, AddressOut, StaffCreateRequest,
+    UserProfileUpdate, UserStatusUpdate, AdminPasswordReset,
     Login2FAChallenge, TwoFAVerifyRequest, GoogleAuthRequest, ResendOtpRequest,
 )
 from app.notifications.service import (
@@ -649,12 +650,70 @@ async def list_drivers(
     return result.scalars().all()
 
 
-# ── Admin: user management ───────────────────────────────────────────────────
+# ── Admin & director: user management ────────────────────────────────────────
+#
+# WHO MAY MANAGE WHOM
+# A super_admin may act on anyone but themselves. A director may act on
+# secretaries — that is the tier directly beneath them, and it's the tier they
+# create in the first place (see /auth/staff/secretaries). A director may not
+# act on another director, on the super_admin, or on themselves; letting them
+# would mean any director could lock every other director out of the system,
+# which is not a power the business intends to hand out.
+#
+# Nobody may act on their own account through these endpoints — self-service
+# lives on /auth/me and /auth/me/change-password. Blocking it here is what
+# stops an admin from suspending or deleting the last way into the system.
+
+def _can_manage(actor: User, target: User) -> bool:
+    if actor.id == target.id:
+        return False
+    if actor.role == UserRole.SUPER_ADMIN:
+        return True
+    if actor.role == UserRole.DIRECTOR:
+        return target.role == UserRole.SECRETARY
+    return False
+
+
+async def _get_managed_user(user_id: str, actor: User, db: AsyncSession) -> User:
+    target = await db.get(User, user_id)
+    if not target:
+        raise NotFoundError("User")
+    if actor.id == target.id:
+        raise ForbiddenError(
+            "You cannot perform this action on your own account. "
+            "Use your profile settings instead.")
+    if not _can_manage(actor, target):
+        if actor.role == UserRole.DIRECTOR:
+            raise ForbiddenError(
+                "As a director you can only manage secretary accounts.")
+        raise ForbiddenError("You are not permitted to manage this account.")
+    return target
+
+
+async def _revoke_all_sessions(db: AsyncSession, user_id: str) -> None:
+    """Kill every live session for a user.
+
+    Suspending or resetting a password is meaningless if the person's existing
+    access token keeps working until it expires. Access tokens are stateless
+    JWTs so they can't be revoked directly, but revoking the refresh tokens
+    means the session cannot be renewed — and get_current_user re-reads
+    `status` from the database on every single request, so a suspended account
+    is locked out immediately regardless.
+    """
+    result = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.is_revoked == False,
+        )
+    )
+    for tok in result.scalars().all():
+        tok.is_revoked = True
+
 
 @router.get("/users", response_model=dict)
 async def list_users(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_director),
     search: Optional[str] = Query(None),
     role: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
@@ -685,6 +744,10 @@ async def list_users(
         "total": total,
         "page": page,
         "limit": limit,
+        # Tells the admin UI which rows this particular viewer may act on, so
+        # it can grey out the buttons instead of offering an action that will
+        # come back 403. Mirrors _assert_can_manage exactly.
+        "manageable_ids": [u.id for u in users if _can_manage(current_user, u)],
     }
 
 
@@ -715,6 +778,190 @@ async def update_user_role(
     await db.commit()
     await db.refresh(target)
     return target
+
+
+@router.patch("/users/{user_id}/profile", response_model=UserAdminOut)
+async def update_user_profile(
+    user_id: str,
+    body: UserProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_director),
+):
+    """Edit another user's name, phone or email. Admin: anyone.
+    Director: secretaries."""
+    target = await _get_managed_user(user_id, current_user, db)
+
+    if body.phone is not None and body.phone != target.phone:
+        clash = await db.execute(
+            select(User).where(User.phone == body.phone, User.id != target.id))
+        if clash.scalar_one_or_none():
+            raise ConflictError("Another account already uses this phone number")
+        target.phone = body.phone
+        # The number changed, so the old verification no longer attests to
+        # anything. Staff are vouched for by their creator, so re-mark verified.
+        target.is_phone_verified = True
+
+    if body.email is not None and body.email != target.email:
+        clash = await db.execute(
+            select(User).where(func.lower(User.email) == body.email.lower(),
+                               User.id != target.id))
+        if clash.scalar_one_or_none():
+            raise ConflictError("Another account already uses this email address")
+        target.email = body.email
+        target.is_email_verified = True
+
+    if body.full_name is not None:
+        target.full_name = body.full_name
+
+    if not target.phone and not target.email:
+        raise ValidationError(
+            "An account needs a phone number or an email address to sign in with")
+
+    await db.commit()
+    await db.refresh(target)
+    return target
+
+
+@router.patch("/users/{user_id}/status", response_model=UserAdminOut)
+async def update_user_status(
+    user_id: str,
+    body: UserStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_director),
+):
+    """Suspend, deactivate or reinstate an account.
+
+    Suspension is the reversible alternative to deletion and should be the
+    default choice — it stops the person signing in without destroying or
+    reassigning any of the work attached to their name.
+    """
+    target = await _get_managed_user(user_id, current_user, db)
+
+    # UserStatus members are ACTIVE/INACTIVE/SUSPENDED; the schema has already
+    # validated that body.status is one of those, lowercased.
+    target.status = UserStatus[body.status.upper()]
+
+    if target.status != UserStatus.ACTIVE:
+        await _revoke_all_sessions(db, target.id)
+
+    await db.commit()
+    await db.refresh(target)
+    return target
+
+
+@router.post("/users/{user_id}/reset-password", response_model=dict)
+async def admin_reset_user_password(
+    user_id: str,
+    body: AdminPasswordReset,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_director),
+):
+    """Set a new password for someone who has lost access to their account.
+
+    Deliberately has no OTP step. The self-service /auth/forgot-password flow
+    sends a code to the account's phone or email — useless precisely when the
+    person has lost the phone or left the mailbox behind, which is when staff
+    actually ask for a reset. The authorisation here is that an admin or
+    director is already signed in and vouching for them.
+    """
+    target = await _get_managed_user(user_id, current_user, db)
+
+    target.password_hash = hash_password(body.new_password)
+    # Everything the old password could still reach is cut off.
+    await _revoke_all_sessions(db, target.id)
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": f"Password reset for {target.full_name}. "
+                   "Share it with them directly — they can change it from Settings.",
+    }
+
+
+@router.delete("/users/{user_id}", response_model=dict)
+async def delete_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_director),
+):
+    """Delete an account outright, permanently.
+
+    WHAT HAPPENS TO THEIR WORK
+    A user is referenced from all over this schema, and two of those columns
+    are NOT NULL: orders.user_id and proforma_invoices.created_by_id. A plain
+    DELETE therefore fails with a foreign-key violation — and deleting the
+    invoices instead would erase real business and tax records because a
+    member of staff left.
+
+    So: personal data belonging to the user is destroyed (addresses, sessions,
+    OTP codes, favourites, ratings, wallet, loyalty), and business records are
+    reassigned to whoever performed the deletion, which keeps the paperwork
+    intact and auditable while removing the person. Everything nullable is
+    simply nulled.
+
+    Suspension (PATCH /users/{id}/status) is the reversible option and is
+    usually the better one. This is not reversible.
+    """
+    target = await _get_managed_user(user_id, current_user, db)
+
+    if target.role == UserRole.SUPER_ADMIN:
+        remaining = await db.execute(
+            select(func.count()).select_from(User).where(
+                User.role == UserRole.SUPER_ADMIN, User.id != target.id))
+        if (remaining.scalar() or 0) == 0:
+            raise ValidationError(
+                "This is the only administrator account — deleting it would "
+                "lock everyone out of Printex permanently.")
+
+    actor_id = current_user.id
+    tid = target.id
+
+    # Personal rows: gone. Most already cascade, but the schema on a
+    # long-lived database may predate those ondelete rules, so they're
+    # deleted explicitly rather than trusted to fire.
+    for table, col in [
+        ("addresses", "user_id"),
+        ("refresh_tokens", "user_id"),
+        ("otp_codes", "user_id"),
+        ("favorites", "user_id"),
+        ("product_ratings", "user_id"),
+        ("wallets", "user_id"),
+        ("loyalty_accounts", "user_id"),
+    ]:
+        await db.execute(text(f"DELETE FROM {table} WHERE {col} = :uid"), {"uid": tid})
+
+    # Business records: reassigned to the person doing the deleting, so the
+    # invoice/order/purchase itself survives with an accountable owner.
+    for table, col in [
+        ("orders", "user_id"),
+        ("proforma_invoices", "created_by_id"),
+    ]:
+        await db.execute(
+            text(f"UPDATE {table} SET {col} = :actor WHERE {col} = :uid"),
+            {"actor": actor_id, "uid": tid})
+
+    # Nullable references: simply detached.
+    for table, col in [
+        ("branches", "manager_id"),
+        ("customers", "user_id"),
+        ("deliveries", "driver_id"),
+        ("expenses", "created_by_id"),
+        ("purchases", "created_by_id"),
+        ("stock_movements", "user_id"),
+        ("users", "created_by_id"),
+    ]:
+        await db.execute(
+            text(f"UPDATE {table} SET {col} = NULL WHERE {col} = :uid"), {"uid": tid})
+
+    name = target.full_name
+    await db.delete(target)
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": f"{name} has been deleted. Any invoices, orders or "
+                   "purchases they raised were reassigned to you.",
+    }
 
 
 # ── Staff: directors & secretaries ──────────────────────────────────────────

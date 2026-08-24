@@ -81,12 +81,23 @@ async def apply_sql_migrations():
     if not sql_files:
         return
 
-    async with engine.begin() as conn:
-        for path in sql_files:
-            sql = path.read_text()
-            if not sql.strip():
-                continue
-            logger.info("Applying migration: %s", path.name)
+    # Each file runs on its own AUTOCOMMIT connection, NOT inside one shared
+    # engine.begin() transaction as this used to.
+    #
+    # Two reasons. First, 003_staff_roles.sql adds values to the `userrole`
+    # enum, and Postgres will not let a value be USED in the same transaction
+    # that added it — wrapping every file in one transaction meant the repair
+    # UPDATE in 003b could never see the labels 003 had just created. Second,
+    # one shared transaction makes the whole set all-or-nothing: a single
+    # failing statement silently rolled back every migration, including ones
+    # that had already applied cleanly on previous boots.
+    for path in sql_files:
+        sql = path.read_text()
+        if not sql.strip():
+            continue
+        logger.info("Applying migration: %s", path.name)
+        async with engine.connect() as conn:
+            await conn.execution_options(isolation_level="AUTOCOMMIT")
             # exec_driver_sql() sends the file through asyncpg's prepared-
             # statement path, which refuses any string containing more than
             # one SQL command — and every migration file here has many

@@ -82,6 +82,22 @@ require_manager_or_director = require_role(
     UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER, UserRole.DIRECTOR
 )
 
+# Catalogue management: products, categories, brands, and stock adjustments.
+#
+# Secretaries are included here deliberately. Their job in this business is
+# keeping the parts catalogue and stock levels correct — adding a category,
+# renaming a part, correcting a reorder point — and the admin sidebar has
+# always shown them Products, Categories and Inventory. Gating those writes
+# on require_manager (which excludes SECRETARY) meant every Save button on
+# those pages came back 403 for the exact role that uses them most.
+#
+# What a secretary still cannot do lives elsewhere: they never see costs or
+# prices in analytics (see analytics.router.get_stock_status), never manage
+# staff, and never touch orders, purchases or expenses.
+require_catalog_manager = require_role(
+    UserRole.SUPER_ADMIN, UserRole.DIRECTOR, UserRole.SECRETARY,
+    UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER)
+
 # A super_admin can create directors; a director (or super_admin) can create
 # secretaries. Secretaries themselves don't manage other staff.
 require_director = require_role(UserRole.SUPER_ADMIN, UserRole.DIRECTOR)

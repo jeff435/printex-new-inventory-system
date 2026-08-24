@@ -18,7 +18,7 @@ from app.proforma.schemas import (
 )
 from app.proforma.pdf import render_proforma_pdf
 from app.proforma.excel_export import render_proforma_excel
-from app.products.models import InventoryItem, StockMovement, StockMovementReason
+from app.products.models import Product, InventoryItem, StockMovement, StockMovementReason
 
 router = APIRouter(prefix="/proforma-invoices", tags=["Proforma Invoices"])
 
@@ -51,16 +51,35 @@ def _money(value: Decimal) -> int:
     return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
-def _build_items(raw_items) -> tuple[list[ProformaInvoiceItem], int]:
+async def _build_items(raw_items, db: AsyncSession) -> tuple[list[ProformaInvoiceItem], int]:
+    """Turn request lines into ProformaInvoiceItem rows, snapshotting the
+    catalogue part number onto each one.
+
+    The part number is resolved here, once, at write time — not read through
+    the product relationship when the PDF is printed. Parts get renumbered
+    and superseded, and a reprint of an old invoice has to show the number
+    the customer was quoted. A caller may also send part_number explicitly
+    (free-text lines with no catalogue link), which wins over the lookup.
+    """
+    # One query for every product referenced, rather than one per line.
+    product_ids = {l.product_id for l in raw_items if l.product_id}
+    part_numbers: dict[str, str | None] = {}
+    if product_ids:
+        result = await db.execute(
+            select(Product.id, Product.part_number).where(Product.id.in_(product_ids)))
+        part_numbers = {pid: pn for pid, pn in result.all()}
+
     subtotal = 0
     items: List[ProformaInvoiceItem] = []
     for line in raw_items:
         line_total = _money(Decimal(str(line.quantity)) * Decimal(line.unit_price_kes))
         subtotal += line_total
+        explicit = (getattr(line, "part_number", None) or "").strip() or None
         items.append(ProformaInvoiceItem(
             id=str(uuid.uuid4()),
             product_id=line.product_id,
             description=line.description,
+            part_number=explicit or part_numbers.get(line.product_id),
             quantity=line.quantity,
             unit_price_kes=line.unit_price_kes,
             line_total_kes=line_total,
@@ -191,7 +210,7 @@ async def create_proforma_invoice(
     """Draft a new proforma invoice. Open to secretaries, directors, and the
     super admin — directors can do a secretary's work when needed. VAT (16%)
     and the discount amount are always computed here, server-side."""
-    items, subtotal = _build_items(body.items)
+    items, subtotal = await _build_items(body.items, db)
     discount_kes, tax_kes, total_kes = _compute_totals(subtotal, body.discount_pct)
 
     pi_number = await _next_pi_number(db)
@@ -291,7 +310,7 @@ async def update_proforma_invoice(
         # ProformaInvoice.items in models.py) takes care of deleting the old
         # rows once they're no longer referenced — reassigning the
         # collection is enough, no explicit db.delete() needed.
-        items, subtotal = _build_items(body.items)
+        items, subtotal = await _build_items(body.items, db)
         inv.items = items
         inv.subtotal_kes = subtotal
     else:

@@ -8,6 +8,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
 )
+from reportlab.lib.enums import TA_RIGHT
 
 NAVY = colors.HexColor("#14151a")
 GREEN = colors.HexColor("#2f8f4e")
@@ -15,6 +16,32 @@ RED = colors.HexColor("#c0392b")
 AMBER = colors.HexColor("#b7791f")
 LIGHT_GREY = colors.HexColor("#f5f6f8")
 BORDER_GREY = colors.HexColor("#e6e8eb")
+
+
+def _esc(value) -> str:
+    """Escape text destined for a Paragraph — see the identical helper in
+    app.proforma.pdf. Part names here routinely contain characters like
+    "<" and "&" that Paragraph would otherwise try to parse as markup."""
+    return (str(value if value is not None else "")
+            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _cell_styles(styles, size=8):
+    """Paragraph styles for table cells.
+
+    Every text cell in these reports is a Paragraph rather than a bare string.
+    reportlab renders a bare string as a single unbroken line and never
+    measures it against its column, so long part names and customer names ran
+    straight over the columns to their right — the overlapping text on printed
+    reports. A Paragraph wraps within the column and the row grows to fit.
+    """
+    cell = ParagraphStyle("cell", parent=styles["Normal"], fontSize=size,
+                          leading=size + 2.5, textColor=NAVY, wordWrap="CJK")
+    hdr = ParagraphStyle("cell_hdr", parent=cell, fontName="Helvetica-Bold",
+                         textColor=colors.white)
+    num = ParagraphStyle("cell_num", parent=cell, alignment=TA_RIGHT)
+    num_hdr = ParagraphStyle("cell_num_hdr", parent=hdr, alignment=TA_RIGHT)
+    return cell, hdr, num, num_hdr
 
 
 def _base_doc(buf, title):
@@ -52,37 +79,54 @@ def render_stock_status_pdf(report) -> bytes:
     show_price = any(p.price_kes is not None for cat in report.categories
                       for p in (cat.out_of_stock + cat.low_stock))
 
+    cell, hdr, num, num_hdr = _cell_styles(styles)
+
     def section(label, color, key):
         story.append(Paragraph(f"<b>{label}</b>", ParagraphStyle(
             "sec", parent=styles["Normal"], fontSize=12, textColor=color, spaceBefore=8, spaceAfter=6)))
-        headers = ["Category", "Part", "SKU", "On Hand", "Reorder Pt"]
+        # "Part No." is the catalogue part number the storeman and the supplier
+        # both order by; SKU is Printex's own internal stock code. Reports used
+        # to print only the SKU, which meant nobody could reorder from them.
+        headers = [
+            Paragraph("Category", hdr), Paragraph("Part", hdr),
+            Paragraph("Part No.", hdr), Paragraph("SKU", hdr),
+            Paragraph("On Hand", num_hdr), Paragraph("Reorder Pt", num_hdr),
+        ]
         if show_price:
-            headers.append("Price (KES)")
+            headers.append(Paragraph("Price (KES)", num_hdr))
         rows = [headers]
         any_rows = False
         for cat in report.categories:
             parts = getattr(cat, key)
             for p in parts:
                 any_rows = True
-                row = [cat.category_name, p.name + (" (unpriced)" if p.needs_pricing else ""),
-                       p.sku, str(p.quantity_on_hand), str(p.reorder_point)]
+                name = _esc(p.name) + (" <i>(unpriced)</i>" if p.needs_pricing else "")
+                row = [
+                    Paragraph(_esc(cat.category_name), cell),
+                    Paragraph(name, cell),
+                    Paragraph(_esc(getattr(p, "part_number", None) or "—"), cell),
+                    Paragraph(_esc(p.sku), cell),
+                    Paragraph(str(p.quantity_on_hand), num),
+                    Paragraph(str(p.reorder_point), num),
+                ]
                 if show_price:
-                    row.append(f"{p.price_kes/100:,.2f}" if p.price_kes is not None else "—")
+                    row.append(Paragraph(
+                        f"{p.price_kes/100:,.2f}" if p.price_kes is not None else "—", num))
                 rows.append(row)
         if not any_rows:
             story.append(Paragraph("None.", styles["Normal"]))
             return
-        col_widths = [28*mm, 62*mm, 20*mm, 18*mm, 20*mm] + ([24*mm] if show_price else [])
+        col_widths = [26*mm, 48*mm, 24*mm, 22*mm, 17*mm, 19*mm] + ([24*mm] if show_price else [])
         tbl = Table(rows, colWidths=col_widths, repeatRows=1)
         tbl.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GREY]),
             ("GRID", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ]))
         story.append(tbl)
         story.append(Spacer(1, 10))
@@ -130,17 +174,17 @@ def render_summary_pdf(summary) -> bytes:
         ["Pending payments — count", str(summary.pending_payments_count)],
         ["Pending payments — value", kes(summary.pending_payments_value)],
     ]
+    cell, hdr, num, num_hdr = _cell_styles(styles, size=9)
+    bold_num = ParagraphStyle("bold_num", parent=num, fontName="Helvetica-Bold")
+    rows = [[Paragraph(_esc(r[0]), hdr if i == 0 else cell),
+             Paragraph(_esc(r[1]), num_hdr if i == 0 else bold_num)]
+            for i, r in enumerate(rows)]
     tbl = Table(rows, colWidths=[100 * mm, 70 * mm], repeatRows=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, 1), (0, -1), "Helvetica"),
-        ("FONTNAME", (1, 1), (1, -1), "Helvetica-Bold"),
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GREY]),
         ("GRID", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
@@ -164,27 +208,37 @@ def render_customer_purchases_pdf(rows) -> bytes:
     _header(story, styles, "Customer Purchases Report",
             "Which customer bought which part, from completed (converted) proforma invoices")
 
-    headers = ["Customer", "Part / Description", "Total Qty", "Total Value (KES)", "Orders"]
-    data = [headers]
+    cell, hdr, num, num_hdr = _cell_styles(styles)
+    data = [[
+        Paragraph("Customer", hdr), Paragraph("Part No.", hdr),
+        Paragraph("Part / Description", hdr), Paragraph("Total Qty", num_hdr),
+        Paragraph("Total Value (KES)", num_hdr), Paragraph("Orders", num_hdr),
+    ]]
     for r in rows:
+        qty = (f"{r.total_quantity:g}"
+               if float(r.total_quantity) == int(r.total_quantity)
+               else str(r.total_quantity))
         data.append([
-            r.customer_name, r.description, f"{r.total_quantity:g}" if float(r.total_quantity) == int(r.total_quantity) else str(r.total_quantity),
-            f"{r.total_value_kes/100:,.2f}", str(r.purchase_count),
+            Paragraph(_esc(r.customer_name), cell),
+            Paragraph(_esc(getattr(r, "part_number", None) or "—"), cell),
+            Paragraph(_esc(r.description), cell),
+            Paragraph(qty, num),
+            Paragraph(f"{r.total_value_kes/100:,.2f}", num),
+            Paragraph(str(r.purchase_count), num),
         ])
     if len(data) == 1:
         story.append(Paragraph("No completed sales recorded yet.", styles["Normal"]))
     else:
-        tbl = Table(data, colWidths=[38*mm, 66*mm, 20*mm, 30*mm, 18*mm], repeatRows=1)
+        tbl = Table(data, colWidths=[36*mm, 24*mm, 52*mm, 18*mm, 28*mm, 16*mm], repeatRows=1)
         tbl.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GREY]),
             ("GRID", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ]))
         story.append(tbl)
 

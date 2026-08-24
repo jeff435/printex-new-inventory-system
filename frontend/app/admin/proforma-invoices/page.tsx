@@ -20,12 +20,17 @@ const VAT_RATE = 0.16;
 
 type Item = {
     product_id: string | null;
+    // Carried as its own field rather than being glued onto the front of the
+    // description. The backend snapshots it onto the invoice line so it can
+    // be printed in its own "Part No." column, and a number embedded in prose
+    // can't be put in a column.
+    part_number: string | null;
     description: string;
     quantity: string;
     unit_price_kes: string; // KSh, not cents
 };
 
-const emptyItem = (): Item => ({ product_id: null, description: "", quantity: "1", unit_price_kes: "" });
+const emptyItem = (): Item => ({ product_id: null, part_number: null, description: "", quantity: "1", unit_price_kes: "" });
 
 const STATUS_COLORS: Record<string, string> = {
     draft: "bg-gray-100 text-gray-600",
@@ -97,7 +102,7 @@ function ProductSearchBox({
                             type="button"
                             onClick={() => {
                                 onSelectProduct({ id: p.id, name: p.name, part_number: p.part_number, price_kes: p.price_kes });
-                                setQuery(p.part_number ? `${p.part_number} — ${p.name}` : p.name);
+                                setQuery(p.name);
                                 setOpen(false);
                             }}
                             className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 border-b border-gray-50 last:border-0"
@@ -257,7 +262,8 @@ export default function ProformaInvoicesPage() {
             const base = hasRealRow ? prev : [];
             const newRows: Item[] = pendingParts.map((p) => ({
                 product_id: p.product_id,
-                description: p.part_number ? `${p.part_number} — ${p.name}` : p.name,
+                part_number: p.part_number || null,
+                description: p.name,
                 quantity: "1",
                 unit_price_kes: kshInput(p.price_kes),
             }));
@@ -334,11 +340,16 @@ export default function ProformaInvoicesPage() {
     // otherwise appends a fresh row, so it never overwrites a part already
     // added.
     const handleAddPartFromModal = (p: { id: string; name: string; part_number?: string | null; price_kes: number }) => {
-        const description = p.part_number ? `${p.part_number} — ${p.name}` : p.name;
         setShowForm(true);
         setItems((prev) => {
             const emptyIdx = prev.findIndex((it) => !it.description.trim() && !it.product_id);
-            const newItem: Item = { product_id: p.id, description, quantity: "1", unit_price_kes: kshInput(p.price_kes) };
+            const newItem: Item = {
+                product_id: p.id,
+                part_number: p.part_number || null,
+                description: p.name,
+                quantity: "1",
+                unit_price_kes: kshInput(p.price_kes),
+            };
             if (emptyIdx !== -1) {
                 return prev.map((it, i) => (i === emptyIdx ? newItem : it));
             }
@@ -363,6 +374,7 @@ export default function ProformaInvoicesPage() {
             .filter((it) => it.description.trim())
             .map((it) => ({
                 product_id: it.product_id || null,
+                part_number: (it.part_number || "").trim() || null,
                 description: it.description.trim(),
                 quantity: parseFloat(it.quantity) || 1,
                 unit_price_kes: Math.round((parseFloat(it.unit_price_kes) || 0) * 100),
@@ -404,6 +416,7 @@ export default function ProformaInvoicesPage() {
         setItems(
             inv.items.map((it: any) => ({
                 product_id: it.product_id,
+                part_number: it.part_number ?? null,
                 description: it.description,
                 quantity: String(it.quantity),
                 unit_price_kes: kshInput(it.unit_price_kes),
@@ -497,12 +510,12 @@ export default function ProformaInvoicesPage() {
                         </p>
                         <div className="space-y-2">
                             {items.map((it, idx) => {
-                                // "PART123 — Name" when linked to inventory, so the
-                                // part number and name are both readable at a glance;
-                                // falls back to the raw description for a manual line.
-                                const dashIdx = it.description.indexOf(" — ");
-                                const linkedPartNumber = it.product_id && dashIdx !== -1 ? it.description.slice(0, dashIdx) : null;
-                                const linkedName = it.product_id && dashIdx !== -1 ? it.description.slice(dashIdx + 3) : null;
+                                // Read straight off the row now that part_number is
+                                // its own field. This used to be recovered by slicing
+                                // the description at " — ", which silently mangled any
+                                // part whose own name contained an em dash.
+                                const linkedPartNumber = it.part_number;
+                                const linkedName = it.product_id ? it.description : null;
 
                                 const qty = parseFloat(it.quantity) || 0;
                                 const priceCents = Math.round((parseFloat(it.unit_price_kes) || 0) * 100);
@@ -516,13 +529,14 @@ export default function ProformaInvoicesPage() {
                                                 onDescriptionChange={(value) => {
                                                     updateItem(idx, "description", value);
                                                     updateItem(idx, "product_id", null);
+                                                    // The old catalogue number must not survive
+                                                    // onto what is now a different, manual line.
+                                                    updateItem(idx, "part_number", null);
                                                 }}
                                                 onSelectProduct={(p) => {
                                                     updateItem(idx, "product_id", p.id);
-                                                    updateItem(
-                                                        idx, "description",
-                                                        p.part_number ? `${p.part_number} — ${p.name}` : p.name,
-                                                    );
+                                                    updateItem(idx, "description", p.name);
+                                                    updateItem(idx, "part_number", p.part_number || null);
                                                     updateItem(idx, "unit_price_kes", kshInput(p.price_kes));
                                                     // Picking a part on the last row opens a fresh
                                                     // empty row right away, so adding several parts
@@ -530,6 +544,14 @@ export default function ProformaInvoicesPage() {
                                                     // line item" in between each one.
                                                     if (idx === items.length - 1) addItem();
                                                 }}
+                                            />
+                                            <input
+                                                type="text"
+                                                placeholder="Part No."
+                                                value={it.part_number ?? ""}
+                                                onChange={(e) => updateItem(idx, "part_number", e.target.value || null)}
+                                                className={`${inp} w-32 font-mono`}
+                                                title="Printed in its own column on the PDF. Filled in automatically when you link a catalogue part; type it by hand for a manual line."
                                             />
                                             <input type="number" min="0" step="0.01" placeholder="Qty" value={it.quantity}
                                                 onChange={(e) => updateItem(idx, "quantity", e.target.value)}

@@ -77,14 +77,15 @@ def render_analytics_excel(
 
     # ── Top moving parts sheet (with its own bar chart) ─────────────────
     ws2 = wb.create_sheet("Top Moving Parts")
-    ws2.append(["SKU", "Product", "Qty Moved", "Value Moved (KES)"])
-    _style_header(ws2, ncols=4)
+    ws2.append(["SKU", "Part Number", "Product", "Qty Moved", "Value Moved (KES)"])
+    _style_header(ws2, ncols=5)
     for row in top_parts:
         ws2.append([
-            row.get("sku", ""), row.get("product_name", ""),
+            row.get("sku", ""), row.get("part_number", "") or "",
+            row.get("product_name", ""),
             row.get("quantity_moved", 0), float(row.get("value_moved", 0)),
         ])
-    for col, width in zip("ABCD", (16, 36, 12, 18)):
+    for col, width in zip("ABCDE", (16, 20, 36, 12, 18)):
         ws2.column_dimensions[col].width = width
 
     if top_parts:
@@ -92,12 +93,12 @@ def render_analytics_excel(
         bar2 = BarChart()
         bar2.title = "Top Moving Parts by Quantity"
         bar2.y_axis.title = "Qty Moved"
-        data_ref2 = Reference(ws2, min_col=3, min_row=1, max_row=1 + n)
-        cats_ref2 = Reference(ws2, min_col=2, min_row=2, max_row=1 + n)
+        data_ref2 = Reference(ws2, min_col=4, min_row=1, max_row=1 + n)
+        cats_ref2 = Reference(ws2, min_col=3, min_row=2, max_row=1 + n)
         bar2.add_data(data_ref2, titles_from_data=True)
         bar2.set_categories(cats_ref2)
         bar2.width, bar2.height = 18, 10
-        ws2.add_chart(bar2, "F2")
+        ws2.add_chart(bar2, "G2")
 
     # ── Raw stock movement ledger sheet ──────────────────────────────────
     ws3 = wb.create_sheet("Stock Movements")
@@ -161,15 +162,17 @@ def render_stock_status_excel(report, customer_rows: list | None = None) -> byte
     if customer_rows is not None:
         ws3 = wb.active if not first_sheet_used else wb.create_sheet("Customer Purchases")
         ws3.title = "Customer Purchases"
-        headers3 = ["Customer", "Part / Description", "Total Qty", "Total Value (KES)", "Times Purchased"]
+        headers3 = ["Customer", "Part Number", "Part / Description", "Total Qty",
+                    "Total Value (KES)", "Times Purchased"]
         ws3.append(headers3)
         _style_header(ws3, ncols=len(headers3))
         for r in customer_rows:
             ws3.append([
-                r.customer_name, r.description, float(r.total_quantity),
+                r.customer_name, getattr(r, "part_number", None) or "",
+                r.description, float(r.total_quantity),
                 round(r.total_value_kes / 100, 2), r.purchase_count,
             ])
-        for col, width in zip("ABCDE", (28, 40, 12, 18, 16)):
+        for col, width in zip("ABCDEF", (28, 20, 40, 12, 18, 16)):
             ws3.column_dimensions[col].width = width
 
     buf = io.BytesIO()

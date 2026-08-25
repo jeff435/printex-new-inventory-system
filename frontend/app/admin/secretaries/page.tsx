@@ -69,7 +69,7 @@ export default function AdminSecretariesPage() {
                         <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
                         <input value={form.full_name} onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))} placeholder="e.g. Mary Achieng" className={inp} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label className="block text-xs font-medium text-gray-600 mb-1">Phone</label>
                             <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+254712345678" className={inp} />

@@ -354,7 +354,7 @@ export default function DirectorAnalyticsPage() {
             )}
 
             {/* Tabs */}
-            <div className="flex border-b border-gray-200 gap-6 text-sm font-medium print:hidden">
+            <div className="flex border-b border-gray-200 gap-6 text-sm font-medium print:hidden overflow-x-auto">
                 {[
                     { id: "overview", label: "Overview", icon: BarChart3 },
                     { id: "top-parts", label: "Top Moving Parts", icon: TrendingUp },
@@ -367,7 +367,7 @@ export default function DirectorAnalyticsPage() {
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as any)}
-                            className={`flex items-center gap-2 pb-3 border-b-2 transition-all ${isActive ? "border-indigo-600 text-indigo-600 font-bold" : "border-transparent text-gray-500 hover:text-gray-800"}`}
+                            className={`flex items-center gap-2 pb-3 border-b-2 transition-all whitespace-nowrap flex-shrink-0 ${isActive ? "border-indigo-600 text-indigo-600 font-bold" : "border-transparent text-gray-500 hover:text-gray-800"}`}
                         >
                             <Icon size={16} /> {tab.label}
                         </button>
@@ -557,26 +557,28 @@ export default function DirectorAnalyticsPage() {
                     ) : !topParts || topParts.length === 0 ? (
                         <p className="text-sm text-gray-400 py-10 text-center">No stock movement recorded in this period.</p>
                     ) : (
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="text-left text-gray-400 text-xs border-b border-gray-100">
-                                    <th className="px-5 py-2.5 font-medium">SKU</th>
-                                    <th className="px-5 py-2.5 font-medium">Part</th>
-                                    <th className="px-5 py-2.5 font-medium text-right">Qty Moved</th>
-                                    <th className="px-5 py-2.5 font-medium text-right">Value Moved</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {topParts.map((p: any) => (
-                                    <tr key={p.product_id} className="border-b border-gray-50 text-gray-700">
-                                        <td className="px-5 py-2.5 font-mono text-xs text-blue-600">{p.sku}</td>
-                                        <td className="px-5 py-2.5">{p.product_name}</td>
-                                        <td className="px-5 py-2.5 text-right">{p.quantity_moved}</td>
-                                        <td className="px-5 py-2.5 text-right font-semibold">{kes(p.value_moved)}</td>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-gray-400 text-xs border-b border-gray-100">
+                                        <th className="px-5 py-2.5 font-medium">SKU</th>
+                                        <th className="px-5 py-2.5 font-medium">Part</th>
+                                        <th className="px-5 py-2.5 font-medium text-right">Qty Moved</th>
+                                        <th className="px-5 py-2.5 font-medium text-right">Value Moved</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {topParts.map((p: any) => (
+                                        <tr key={p.product_id} className="border-b border-gray-50 text-gray-700">
+                                            <td className="px-5 py-2.5 font-mono text-xs text-blue-600">{p.sku}</td>
+                                            <td className="px-5 py-2.5">{p.product_name}</td>
+                                            <td className="px-5 py-2.5 text-right">{p.quantity_moved}</td>
+                                            <td className="px-5 py-2.5 text-right font-semibold">{kes(p.value_moved)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     )}
                 </div>
             )}

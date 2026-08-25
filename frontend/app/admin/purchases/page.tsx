@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { purchasesApi, suppliersApi, expensesApi, productsApi, api } from "@/lib/api";
 import toast from "react-hot-toast";
-import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle } from "lucide-react";
+import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search } from "lucide-react";
 
 const inp = "w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 placeholder:text-gray-400";
 
@@ -24,8 +24,38 @@ export default function PurchasesPage() {
             <div>
                 <h1 className="text-xl font-bold text-gray-900">Purchases &amp; Expenses</h1>
                 <p className="text-sm text-gray-500 mt-0.5">
-                    Restocks from suppliers and operating costs — these feed the "Full Analytics" card on the Overview page.
+                    This is where new stock actually enters the system, and where day-to-day operating costs get logged.
                 </p>
+            </div>
+
+            <div className="admin-card p-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                <div className="flex gap-2.5">
+                    <Truck size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="font-semibold text-gray-800">Purchases</p>
+                        <p className="text-gray-500 mt-0.5">
+                            Record what you're buying from a supplier — pick the parts and quantities. It's saved as a <b>Draft</b> first and does <b>not</b> touch stock yet. Click the ✓ on a draft once the delivery actually arrives — that's the step that adds the quantity to Inventory and shows up as "Goods Received" in Director Analytics.
+                        </p>
+                    </div>
+                </div>
+                <div className="flex gap-2.5">
+                    <Receipt size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="font-semibold text-gray-800">Expenses</p>
+                        <p className="text-gray-500 mt-0.5">
+                            Running costs that aren't stock — rent, transport, salaries, utilities. These don't touch inventory at all; they only feed the cost totals in Director Analytics.
+                        </p>
+                    </div>
+                </div>
+                <div className="flex gap-2.5">
+                    <Building2 size={16} className="text-teal-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="font-semibold text-gray-800">Suppliers</p>
+                        <p className="text-gray-500 mt-0.5">
+                            The list of companies you buy parts from — add one here first, then pick it when creating a purchase order.
+                        </p>
+                    </div>
+                </div>
             </div>
 
             <div className="flex gap-1 border-b border-gray-200">
@@ -61,6 +91,10 @@ function PurchasesTab() {
     const [branchId, setBranchId] = useState("");
     const [notes, setNotes] = useState("");
     const [items, setItems] = useState([{ product_id: "", quantity: "1", unit_cost: "" }]);
+    // Parallel to `items` — what's typed in each row's search box, and which
+    // row (if any) currently has its results dropdown open.
+    const [partQueries, setPartQueries] = useState([""]);
+    const [openRow, setOpenRow] = useState<number | null>(null);
 
     const { data: purchases, isLoading } = useQuery({
         queryKey: ["purchases"],
@@ -87,6 +121,7 @@ function PurchasesTab() {
             setShowForm(false);
             setSupplierId(""); setBranchId(""); setNotes("");
             setItems([{ product_id: "", quantity: "1", unit_cost: "" }]);
+            setPartQueries([""]);
         },
         onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create purchase"),
     });
@@ -111,6 +146,22 @@ function PurchasesTab() {
     });
 
     const productList = products?.items ?? [];
+
+    // Filters the already-fetched product list client-side by name, SKU, or
+    // part number — the same three fields the register/product catalog is
+    // organised around, so a search here always reflects the live catalog,
+    // not a separate hand-kept list.
+    const matchesForQuery = (q: string) => {
+        const term = q.trim().toLowerCase();
+        if (!term) return productList.slice(0, 8);
+        return productList
+            .filter((p: any) =>
+                p.name?.toLowerCase().includes(term) ||
+                p.sku?.toLowerCase().includes(term) ||
+                p.part_number?.toLowerCase().includes(term)
+            )
+            .slice(0, 8);
+    };
     const supplierList = suppliers ?? [];
     const branchList = branches?.items ?? branches ?? [];
 
@@ -146,23 +197,79 @@ function PurchasesTab() {
                     </div>
 
                     <div className="space-y-2">
-                        {items.map((it, idx) => (
-                            <div key={idx} className="flex gap-2">
-                                <select value={it.product_id} onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, product_id: e.target.value } : p))} className={`${inp} flex-1`}>
-                                    <option value="">Select product</option>
-                                    {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                </select>
-                                <input type="number" min="1" placeholder="Qty" value={it.quantity}
-                                    onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, quantity: e.target.value } : p))}
-                                    className={`${inp} w-20`} />
-                                <input type="number" min="0" step="0.01" placeholder="Unit cost (KES)" value={it.unit_cost}
-                                    onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, unit_cost: e.target.value } : p))}
-                                    className={`${inp} w-36`} />
-                                <button onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))} disabled={items.length === 1}
-                                    className="p-2 text-gray-400 hover:text-red-500 disabled:opacity-30"><X size={15} /></button>
-                            </div>
-                        ))}
-                        <button onClick={() => setItems((prev) => [...prev, { product_id: "", quantity: "1", unit_cost: "" }])}
+                        {items.map((it, idx) => {
+                            const selected = productList.find((p: any) => p.id === it.product_id);
+                            const query = partQueries[idx] ?? "";
+                            const showDropdown = openRow === idx && !selected;
+                            return (
+                                <div key={idx} className="space-y-1">
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                                            <input
+                                                type="text"
+                                                placeholder="Search part by name, SKU, or part number…"
+                                                value={selected ? `${selected.name}${selected.part_number ? ` · ${selected.part_number}` : ""}` : query}
+                                                onFocus={() => setOpenRow(idx)}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setPartQueries((prev) => prev.map((q, i) => i === idx ? val : q));
+                                                    // typing again after a part was picked clears the pick, so
+                                                    // the field goes back to being a live search box
+                                                    setItems((prev) => prev.map((p, i) => i === idx ? { ...p, product_id: "" } : p));
+                                                    setOpenRow(idx);
+                                                }}
+                                                onBlur={() => setTimeout(() => setOpenRow((r) => (r === idx ? null : r)), 150)}
+                                                className={`${inp} pl-8`}
+                                            />
+                                            {showDropdown && (
+                                                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                                                    {matchesForQuery(query).length === 0 ? (
+                                                        <p className="px-3 py-2 text-xs text-gray-400">No matching parts</p>
+                                                    ) : (
+                                                        matchesForQuery(query).map((p: any) => (
+                                                            <button
+                                                                key={p.id}
+                                                                type="button"
+                                                                onMouseDown={(e) => e.preventDefault()}
+                                                                onClick={() => {
+                                                                    setItems((prev) => prev.map((it2, i) => i === idx ? { ...it2, product_id: p.id } : it2));
+                                                                    setPartQueries((prev) => prev.map((q, i) => i === idx ? "" : q));
+                                                                    setOpenRow(null);
+                                                                }}
+                                                                className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex flex-col gap-0.5"
+                                                            >
+                                                                <span className="text-gray-800 font-medium">{p.name}</span>
+                                                                <span className="text-gray-400">
+                                                                    {p.part_number && <span className="font-mono text-blue-600">{p.part_number}</span>}
+                                                                    {p.part_number && p.sku ? " · " : ""}
+                                                                    {p.sku}
+                                                                </span>
+                                                            </button>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <input type="number" min="1" placeholder="Qty" value={it.quantity}
+                                            onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, quantity: e.target.value } : p))}
+                                            className={`${inp} w-20`} />
+                                        <input type="number" min="0" step="0.01" placeholder="Unit cost (KES)" value={it.unit_cost}
+                                            onChange={(e) => setItems((prev) => prev.map((p, i) => i === idx ? { ...p, unit_cost: e.target.value } : p))}
+                                            className={`${inp} w-36`} />
+                                        <button onClick={() => {
+                                            setItems((prev) => prev.filter((_, i) => i !== idx));
+                                            setPartQueries((prev) => prev.filter((_, i) => i !== idx));
+                                        }} disabled={items.length === 1}
+                                            className="p-2 text-gray-400 hover:text-red-500 disabled:opacity-30"><X size={15} /></button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        <button onClick={() => {
+                            setItems((prev) => [...prev, { product_id: "", quantity: "1", unit_cost: "" }]);
+                            setPartQueries((prev) => [...prev, ""]);
+                        }}
                             className="text-xs text-blue-600 hover:underline">+ Add line item</button>
                     </div>
 
@@ -180,6 +287,11 @@ function PurchasesTab() {
                 <div className="admin-card p-8 text-center text-gray-400 text-sm">No purchase orders yet.</div>
             ) : (
                 <div className="space-y-2">
+                    <p className="text-xs text-gray-400 px-1">
+                        <span className="font-medium text-gray-500">Draft</span> = created, stock not added yet ·{" "}
+                        <span className="font-medium text-green-600">Received</span> = ✓ clicked, stock added ·{" "}
+                        <span className="font-medium text-red-500">Cancelled</span> = won't be received
+                    </p>
                     {(purchases ?? []).map((p: any) => (
                         <div key={p.id} className="admin-card p-4 flex items-center justify-between gap-3 flex-wrap">
                             <div>

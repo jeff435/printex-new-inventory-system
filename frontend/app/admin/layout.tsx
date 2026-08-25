@@ -23,7 +23,7 @@ const NAV: NavItem[] = [
     { href: "/admin/categories", label: "Categories", icon: Tags, roles: ["super_admin", "director", "secretary"] },
     { href: "/admin/inventory", label: "Inventory", icon: Warehouse, roles: ["super_admin", "director", "secretary"] },
     { href: "/admin/proforma-invoices", label: "Proforma Invoices", icon: FileText, roles: ["super_admin", "director", "secretary"] },
-    { href: "/admin/purchases", label: "Purchases & Expenses", icon: Receipt, roles: ["super_admin", "director"] },
+    { href: "/admin/purchases", label: "Purchases & Expenses", icon: Receipt, roles: ["super_admin", "director", "secretary"] },
     // Directors manage staff too now (secretaries specifically — the backend
     // enforces exactly who, see _can_manage in app/auth/router.py), so they
     // need the Users page the nav previously reserved for super_admin.

@@ -4,6 +4,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from app.proforma.pdf import PAYMENT_DETAILS, PAYBILL, TILL
+
 NAVY = "14151A"
 GREEN = "2F8F4E"
 LIGHT_GREY = "F5F6F8"
@@ -92,6 +94,33 @@ def render_proforma_excel(inv) -> bytes:
         r += 1
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
         ws.cell(row=r, column=1, value=inv.notes)
+
+    # Signature, then payment details — stacked in the same top-to-bottom
+    # order as the printed PDF (Received by / Signature and date first,
+    # THEN Account Payable To below it), so the Excel download carries the
+    # same information as the print/PDF version instead of stopping short.
+    r += 2
+    ws.cell(row=r, column=1, value="Received by: ________________________________").font = Font(color=NAVY)
+    r += 2
+    ws.cell(row=r, column=1, value="Signature and date: ________________________________").font = Font(color=NAVY)
+    r += 2
+
+    def _payment_block(title: str, details: dict, row: int) -> int:
+        ws.cell(row=row, column=1, value=title).font = Font(bold=True, color=NAVY)
+        row += 1
+        for k, v in details.items():
+            ws.cell(row=row, column=1, value=f"{k}:").font = Font(bold=True, color=NAVY)
+            ws.cell(row=row, column=2, value=str(v))
+            row += 1
+        return row + 1
+
+    r = _payment_block("ACCOUNT PAYABLE TO:", PAYMENT_DETAILS, r)
+    ws.cell(row=r, column=1, value="OR,").font = Font(bold=True, color=NAVY)
+    r += 1
+    r = _payment_block("", PAYBILL, r)
+    ws.cell(row=r, column=1, value="OR,").font = Font(bold=True, color=NAVY)
+    r += 1
+    r = _payment_block("", TILL, r)
 
     widths = [6, 20, 46, 8, 18, 18]
     for i, w in enumerate(widths, start=1):

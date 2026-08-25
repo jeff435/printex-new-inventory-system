@@ -211,30 +211,31 @@ def render_proforma_pdf(inv) -> bytes:
     story.append(HRFlowable(width="100%", thickness=0.75, color=BORDER_GREY))
     story.append(Spacer(1, 8))
 
-    # ── Signature + full payment credentials footer ───────────────────────
+    # ── Signature, then full payment credentials footer — stacked
+    # sequentially (not side-by-side columns), matching the paper template:
+    # Received by / Signature and date first, THEN Account Payable To below
+    # it, reading top to bottom rather than left/right.
     def _kv_lines(d: dict) -> str:
         return "<br/>".join(f"<b>{k}:</b> {v}" for k, v in d.items())
 
-    signature_block = Paragraph(
-        "Received by: ________________________<br/><br/>"
-        "Signature and date: ________________________",
-        small,
-    )
-    payment_block = Paragraph(
+    story.append(Paragraph(
+        "Received by: ________________________________", small,
+    ))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(
+        "Signature and date: ________________________________", small,
+    ))
+    story.append(Spacer(1, 14))
+
+    story.append(Paragraph(
         "<b>ACCOUNT PAYABLE TO:</b><br/>"
         + _kv_lines(PAYMENT_DETAILS)
-        + "<br/><br/><b>OR, PAYBILL</b><br/>"
+        + "<br/><br/><b>OR,</b><br/>"
         + _kv_lines(PAYBILL)
-        + "<br/><br/><b>OR, TILL NUMBER</b><br/>"
+        + "<br/><br/><b>OR,</b><br/>"
         + _kv_lines(TILL),
         small,
-    )
-    footer_tbl = Table([[signature_block, payment_block]], colWidths=[70 * mm, 104 * mm])
-    footer_tbl.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
-    story.append(footer_tbl)
-    story.append(Spacer(1, 10))
+    ))
 
     doc.build(story)
     return buf.getvalue()

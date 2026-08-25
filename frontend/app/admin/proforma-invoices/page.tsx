@@ -242,7 +242,7 @@ export default function ProformaInvoicesPage() {
     const [addPartModalOpen, setAddPartModalOpen] = useState(false);
 
     const [form, setForm] = useState({
-        customer_name: "", customer_phone: "", customer_email: "",
+        customer_name: "", customer_phone: "", customer_email: "", customer_address: "",
         notes: "", valid_until: "", discount_pct: "0",
     });
     const [items, setItems] = useState<Item[]>([emptyItem()]);
@@ -283,7 +283,7 @@ export default function ProformaInvoicesPage() {
     });
 
     const resetForm = () => {
-        setForm({ customer_name: "", customer_phone: "", customer_email: "", notes: "", valid_until: "", discount_pct: "0" });
+        setForm({ customer_name: "", customer_phone: "", customer_email: "", customer_address: "", notes: "", valid_until: "", discount_pct: "0" });
         setItems([emptyItem()]);
         setEditingId(null);
     };
@@ -383,6 +383,7 @@ export default function ProformaInvoicesPage() {
             customer_name: form.customer_name,
             customer_phone: form.customer_phone || null,
             customer_email: form.customer_email || null,
+            customer_address: form.customer_address || null,
             // Which branch's shelf this quote's parts come off. Falls back to
             // null (no auto stock deduction happens) when "All branches" is
             // selected in the header, since there'd be no single branch to
@@ -409,6 +410,7 @@ export default function ProformaInvoicesPage() {
             customer_name: inv.customer_name,
             customer_phone: inv.customer_phone || "",
             customer_email: inv.customer_email || "",
+            customer_address: inv.customer_address || "",
             notes: inv.notes || "",
             valid_until: inv.valid_until || "",
             discount_pct: String(inv.discount_pct ?? "0"),
@@ -495,9 +497,11 @@ export default function ProformaInvoicesPage() {
                         {editingId ? "Edit draft proforma invoice" : "New proforma invoice"}
                     </h2>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <input placeholder="Customer name *" value={form.customer_name}
                             onChange={(e) => setForm({ ...form, customer_name: e.target.value })} className={inp} />
+                        <input placeholder="Address (business name, location)" value={form.customer_address}
+                            onChange={(e) => setForm({ ...form, customer_address: e.target.value })} className={inp} />
                         <input placeholder="Phone" value={form.customer_phone}
                             onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} className={inp} />
                         <input placeholder="Email" value={form.customer_email}
@@ -671,6 +675,7 @@ export default function ProformaInvoicesPage() {
                                         <div className="text-xs text-gray-500 space-y-1">
                                             {inv.customer_phone && <p>Phone: {inv.customer_phone}</p>}
                                             {inv.customer_email && <p>Email: {inv.customer_email}</p>}
+                                            {inv.customer_address && <p>Address: {inv.customer_address}</p>}
                                             {inv.valid_until && <p>Valid until: {inv.valid_until}</p>}
                                             {inv.notes && <p>Notes: {inv.notes}</p>}
                                         </div>

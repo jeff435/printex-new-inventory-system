@@ -105,6 +105,7 @@ def _serialize(inv: ProformaInvoice) -> ProformaInvoiceOut:
         customer_name=inv.customer_name,
         customer_phone=inv.customer_phone,
         customer_email=inv.customer_email,
+        customer_address=inv.customer_address,
         branch_id=inv.branch_id,
         status=inv.status.value if hasattr(inv.status, "value") else inv.status,
         notes=inv.notes,
@@ -220,6 +221,7 @@ async def create_proforma_invoice(
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
         customer_email=body.customer_email,
+        customer_address=body.customer_address,
         branch_id=body.branch_id,
         notes=body.notes,
         valid_until=body.valid_until,
@@ -294,6 +296,8 @@ async def update_proforma_invoice(
         inv.customer_phone = body.customer_phone
     if body.customer_email is not None:
         inv.customer_email = body.customer_email
+    if body.customer_address is not None:
+        inv.customer_address = body.customer_address
     if body.branch_id is not None:
         inv.branch_id = body.branch_id
     if body.notes is not None:

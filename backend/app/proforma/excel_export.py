@@ -34,14 +34,16 @@ def render_proforma_excel(inv) -> bytes:
     ws["B5"] = inv.customer_phone or "—"
     ws["A6"] = "Email:"
     ws["B6"] = inv.customer_email or "—"
-    ws["A7"] = "Status:"
-    ws["B7"] = (inv.status.value if hasattr(inv.status, "value") else inv.status).title()
-    ws["A8"] = "Valid until:"
-    ws["B8"] = inv.valid_until or "—"
-    for row in range(3, 9):
+    ws["A7"] = "Address:"
+    ws["B7"] = getattr(inv, "customer_address", None) or "—"
+    ws["A8"] = "Status:"
+    ws["B8"] = (inv.status.value if hasattr(inv.status, "value") else inv.status).title()
+    ws["A9"] = "Valid until:"
+    ws["B9"] = inv.valid_until or "—"
+    for row in range(3, 10):
         ws[f"A{row}"].font = Font(bold=True, color=NAVY)
 
-    header_row = 10
+    header_row = 11
     headers = ["#", "Part No.", "Description", "Qty", "Unit Price (KES)", "Line Total (KES)"]
     for col, title in enumerate(headers, start=1):
         cell = ws.cell(row=header_row, column=col, value=title)

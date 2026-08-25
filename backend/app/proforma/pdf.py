@@ -124,6 +124,8 @@ def render_proforma_pdf(inv) -> bytes:
         story.append(Paragraph(_esc(inv.customer_phone), body))
     if inv.customer_email:
         story.append(Paragraph(_esc(inv.customer_email), body))
+    if getattr(inv, "customer_address", None):
+        story.append(Paragraph(_esc(inv.customer_address), body))
     story.append(Spacer(1, 12))
 
     # ── Line items: Part No. | Description | Quantity | @ | Total Amount ──
@@ -233,14 +235,6 @@ def render_proforma_pdf(inv) -> bytes:
     ]))
     story.append(footer_tbl)
     story.append(Spacer(1, 10))
-
-    prepared_by = inv.created_by.full_name if getattr(inv, "created_by", None) else "—"
-    story.append(Paragraph(
-        f"This is a proforma invoice — a quotation, valid until "
-        f"{inv.valid_until or 'the date agreed with your PRINTEX contact'}. "
-        f"Prepared by: {_esc(prepared_by)}.",
-        small,
-    ))
 
     doc.build(story)
     return buf.getvalue()

@@ -305,16 +305,27 @@ export default function AdminOverviewPage() {
     const { data: productsData } = useQuery({
         queryKey: ["admin-products-overview"],
         queryFn: () => api.get("/products?limit=100").then((r) => r.data),
-        enabled: !isSecretary,
     });
     const { data: analyticsSummary } = useQuery({
         queryKey: ["admin-analytics-summary"],
         queryFn: () => analyticsApi.summary().then((r) => r.data),
         enabled: canSeeAll,
     });
+    // Shares its cache with the query inside StockStatusCard (same queryKey)
+    // — secretaries can call this endpoint (require_secretary, i.e. any
+    // staff role) even though /analytics/summary above is director-only,
+    // so this is the number every role's stat cards should read from.
+    const { data: stockStatusData } = useQuery({
+        queryKey: ["admin-stock-status"],
+        queryFn: () => analyticsApi.stockStatus().then((r) => r.data),
+    });
 
     const orders = ordersData ?? [];
     const products = productsData?.items ?? [];
+    const totalParts = productsData?.total ?? products.length;
+    const totalOutOfStock = stockStatusData?.total_out_of_stock ?? 0;
+    const totalLowStock = stockStatusData?.total_low_stock ?? 0;
+    const stockCategories = stockStatusData?.categories ?? [];
     const totalRevenue = orders
         .filter((o: any) => o.status === "delivered")
         .reduce((sum: number, o: any) => sum + o.total_kes, 0);
@@ -326,6 +337,21 @@ export default function AdminOverviewPage() {
 
     const hour = new Date().getHours();
     const greeting = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+
+    // Small stock analysis — worst-affected category and how much of the
+    // catalogue needs attention right now. Same source data as
+    // StockStatusCard below, just summarised into a couple of sentences.
+    const categoryIssueCounts = stockCategories
+        .map((c: any) => ({
+            name: c.category_name,
+            count: (c.out_of_stock?.length ?? 0) + (c.low_stock?.length ?? 0),
+        }))
+        .filter((c: any) => c.count > 0)
+        .sort((a: any, b: any) => b.count - a.count);
+    const worstCategory = categoryIssueCounts[0];
+    const affectedPct = totalParts > 0
+        ? Math.round(((totalOutOfStock + totalLowStock) / totalParts) * 100)
+        : 0;
 
     return (
         <div className="space-y-6">
@@ -354,25 +380,28 @@ export default function AdminOverviewPage() {
                             color="bg-green-600"
                             sub="From delivered orders"
                         />
-                        <StatCard
-                            label="Products"
-                            value={products.length}
-                            icon={ShoppingBag}
-                            color="bg-purple-600"
-                            sub="Active in catalogue"
-                        />
                     </>
                 )}
                 <StatCard
-                    label="Out of / Low Stock"
-                    value={
-                        analyticsSummary
-                            ? (analyticsSummary.out_of_stock_parts ?? 0) + (analyticsSummary.low_stock_parts ?? 0)
-                            : "—"
-                    }
-                    icon={AlertTriangle}
+                    label="Total Parts"
+                    value={totalParts}
+                    icon={ShoppingBag}
+                    color="bg-purple-600"
+                    sub="In the catalogue"
+                />
+                <StatCard
+                    label="Out of Stock"
+                    value={totalOutOfStock}
+                    icon={PackageX}
                     color="bg-red-500"
-                    sub="See full breakdown below"
+                    sub="Zero units on hand"
+                />
+                <StatCard
+                    label="Low Stock"
+                    value={totalLowStock}
+                    icon={PackageMinus}
+                    color="bg-yellow-500"
+                    sub="Running low — see below"
                 />
                 {canSeeAll && (
                     <StatCard
@@ -442,6 +471,20 @@ export default function AdminOverviewPage() {
                         )}
                     </div>
                 </>
+            )}
+
+            {/* Small stock analysis — every role, sits right above the full breakdown */}
+            {(totalOutOfStock > 0 || totalLowStock > 0) && (
+                <div className="admin-card p-4 flex items-start gap-3 border-l-4 border-l-red-400">
+                    <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-gray-700">
+                        <b>{affectedPct}% of the catalogue</b> ({totalOutOfStock + totalLowStock} of {totalParts} parts) needs attention —{" "}
+                        <b>{totalOutOfStock} out of stock</b>, <b>{totalLowStock} running low</b>.
+                        {worstCategory && (
+                            <> Worst affected: <b>{worstCategory.name}</b> ({worstCategory.count} parts).</>
+                        )}
+                    </p>
+                </div>
             )}
 
             {/* Stock status — every role (secretary, director, admin) */}

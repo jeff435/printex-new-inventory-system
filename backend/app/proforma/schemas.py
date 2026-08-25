@@ -32,6 +32,7 @@ class ProformaInvoiceCreate(BaseModel):
     customer_name: str
     customer_phone: Optional[str] = None
     customer_email: Optional[str] = None
+    customer_address: Optional[str] = None
     branch_id: Optional[str] = None
     notes: Optional[str] = None
     valid_until: Optional[str] = None  # ISO date, e.g. "2026-09-01"
@@ -69,6 +70,7 @@ class ProformaInvoiceUpdate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_email: Optional[str] = None
+    customer_address: Optional[str] = None
     branch_id: Optional[str] = None
     notes: Optional[str] = None
     valid_until: Optional[str] = None
@@ -112,6 +114,7 @@ class ProformaInvoiceOut(BaseModel):
     customer_name: str
     customer_phone: Optional[str]
     customer_email: Optional[str]
+    customer_address: Optional[str] = None
     branch_id: Optional[str]
     status: str
     notes: Optional[str]

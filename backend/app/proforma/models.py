@@ -37,6 +37,7 @@ class ProformaInvoice(Base):
     customer_name = Column(String(255), nullable=False)
     customer_phone = Column(String(20), nullable=True)
     customer_email = Column(String(255), nullable=True)
+    customer_address = Column(String(500), nullable=True)
 
     branch_id = Column(UUID(as_uuid=False), ForeignKey(
         "branches.id"), nullable=True)

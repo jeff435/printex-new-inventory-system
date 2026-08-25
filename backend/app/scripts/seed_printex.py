@@ -25,6 +25,18 @@ from pathlib import Path
 
 from sqlalchemy import select
 
+# Importing app.main (rather than just the two model modules this script
+# actually uses) pulls in EVERY router and, with it, every model module —
+# same as what happens on normal app startup. SQLAlchemy resolves
+# relationships like User.orders by the string name "Order", and it can only
+# do that if the Order class has been imported and registered somewhere
+# first. Skipping this import is exactly what caused:
+#   sqlalchemy.exc.InvalidRequestError: ... failed to locate a name ('Order')
+# main.py itself documents this same requirement for Category/Product further
+# down — this script needs the same guarantee, just for every model, since it
+# runs standalone rather than inside a booted app.
+import app.main  # noqa: F401
+
 from app.database import AsyncSessionLocal
 from app.auth.models import Branch
 from app.products.models import (

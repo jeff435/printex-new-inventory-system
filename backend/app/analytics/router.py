@@ -11,20 +11,21 @@ from app.database import get_db
 from app.core.deps import require_director, require_secretary
 from app.auth.models import User, UserRole
 from app.products.models import (
-    Product, InventoryItem, StockStatus, StockMovement, StockMovementReason,
+    Product, Category, InventoryItem, StockStatus, StockMovement, StockMovementReason,
 )
 from app.purchases.models import Purchase, PurchaseStatus, Expense
 from app.proforma.models import ProformaInvoice, ProformaInvoiceItem, ProformaStatus
 from app.analytics.schemas import (
-    StockMovementOut, TopPartRow, GoodsReceivedRow, AnalyticsSummary,
+    StockMovementOut, TopPartRow, GoodsReceivedRow, CategoryValueRow, AnalyticsSummary,
     StockStatusPart, StockStatusCategory, StockStatusReport, CustomerPurchaseRow,
 )
 from app.analytics.excel_export import (
     render_analytics_excel, render_stock_status_excel, render_goods_received_excel,
+    render_category_value_excel,
 )
 from app.analytics.pdf import (
     render_stock_status_pdf, render_customer_purchases_pdf, render_summary_pdf,
-    render_goods_received_pdf,
+    render_goods_received_pdf, render_category_value_pdf,
 )
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -281,6 +282,77 @@ async def export_goods_received_pdf(
     rows = await get_goods_received(db=db, _=current_user, start=start, end=end, limit=1000)
     pdf_bytes = render_goods_received_pdf(rows)
     filename = f"printex-goods-received-{datetime.now(timezone.utc).date()}.pdf"
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/stock-value", response_model=List[CategoryValueRow])
+async def get_stock_value_by_category(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_director),
+):
+    """Current stock on hand, grouped by category (A–F) — mirrors the
+    register's 'Summary by Register Column' table: line items, qty,
+    stock value in USD, potential sales in KES. Computed live from
+    InventoryItem so it always reflects today's stock, not the day the
+    register was transcribed."""
+    q = select(
+        Category.id, Category.name,
+        func.count(func.distinct(Product.id)).label("line_items"),
+        func.coalesce(func.sum(InventoryItem.quantity_on_hand), 0).label("qty"),
+        func.coalesce(
+            func.sum(InventoryItem.quantity_on_hand * Product.buying_price_usd), 0
+        ).label("stock_value_usd"),
+        func.coalesce(
+            func.sum(InventoryItem.quantity_on_hand * Product.price_kes), 0
+        ).label("potential_sales_kes"),
+    ).select_from(Category).join(
+        Product, Product.category_id == Category.id
+    ).join(
+        InventoryItem, InventoryItem.product_id == Product.id
+    ).group_by(Category.id, Category.name, Category.sort_order).order_by(Category.sort_order)
+
+    result = await db.execute(q)
+    rows = []
+    for r in result.all():
+        # register_column is a single letter kept on the product, not the
+        # category — pull it back out of the category name's "A — " prefix
+        # so the export tables can show it as its own column.
+        code = r.name.split(" — ")[0] if " — " in r.name else None
+        rows.append(CategoryValueRow(
+            category_id=r.id, category_name=r.name, register_column=code,
+            line_items=r.line_items, total_qty=r.qty,
+            stock_value_usd=Decimal(r.stock_value_usd) / 100,
+            potential_sales_kes=Decimal(r.potential_sales_kes) / 100,
+        ))
+    return rows
+
+
+@router.get("/stock-value/export/excel")
+async def export_stock_value_excel(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_director),
+):
+    rows = await get_stock_value_by_category(db=db, _=current_user)
+    xlsx_bytes = render_category_value_excel(rows)
+    filename = f"printex-stock-value-{datetime.now(timezone.utc).date()}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/stock-value/pdf")
+async def export_stock_value_pdf(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_director),
+):
+    rows = await get_stock_value_by_category(db=db, _=current_user)
+    pdf_bytes = render_category_value_pdf(rows)
+    filename = f"printex-stock-value-{datetime.now(timezone.utc).date()}.pdf"
     return Response(
         content=pdf_bytes, media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},

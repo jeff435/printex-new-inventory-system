@@ -8,7 +8,7 @@ import { ArrowLeft, Upload, X, Loader2 } from "lucide-react";
 
 const emptyForm = {
     name: "", sku: "", part_number: "", slug: "", description: "", short_description: "",
-    price_kes: "", category_id: "", brand_id: "",
+    price_kes: "", buying_price_usd: "", category_id: "", brand_id: "",
     unit: "pieces", unit_value: "", thumbnail_url: "", status: "ACTIVE",
 };
 
@@ -73,6 +73,7 @@ function ProductFormContent() {
             description: existingProduct.description ?? "",
             short_description: existingProduct.short_description ?? "",
             price_kes: existingProduct.price_kes ? (existingProduct.price_kes / 100).toString() : "",
+            buying_price_usd: existingProduct.buying_price_usd != null ? (existingProduct.buying_price_usd / 100).toString() : "",
             category_id: existingProduct.category?.id ?? "",
             brand_id: existingProduct.brand?.id ?? "",
             unit: "pieces",
@@ -149,6 +150,7 @@ function ProductFormContent() {
                 description: form.description || null,
                 short_description: form.short_description || null,
                 price_kes: Math.round(parseFloat(form.price_kes) * 100),
+                buying_price_usd: form.buying_price_usd ? Math.round(parseFloat(form.buying_price_usd) * 100) : null,
                 category_id: form.category_id || null,
                 brand_id: form.brand_id || null,
                 unit: "pieces",
@@ -162,6 +164,7 @@ function ProductFormContent() {
                 description: form.description || null,
                 short_description: form.short_description || null,
                 price_kes: Math.round(parseFloat(form.price_kes) * 100),
+                buying_price_usd: form.buying_price_usd ? Math.round(parseFloat(form.buying_price_usd) * 100) : null,
                 category_id: form.category_id || null,
                 brand_id: form.brand_id || null,
                 unit: "pieces",
@@ -206,6 +209,22 @@ function ProductFormContent() {
             <div className="glass-card p-6 space-y-4">
                 <h2 className="font-semibold text-gray-800">Pricing</h2>
                 <FormField label="Price (KES) *" k="price_kes" type="number" ph="e.g. 65" value={form.price_kes} onChange={setField} />
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Buying Price (USD)</label>
+                    <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400">USD</span>
+                        <input
+                            type="number" step="0.01"
+                            value={form.buying_price_usd}
+                            onChange={(e) => setField("buying_price_usd", e.target.value)}
+                            placeholder="e.g. 30.00"
+                            className={`${inp} pl-12`}
+                        />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                        Purchase cost in US Dollars — a separate figure from the KES selling price above, with no currency conversion between them.
+                    </p>
+                </div>
                 <p className="text-xs text-gray-400">Enter prices in KES (e.g. 65 for KES 65.00).</p>
             </div>
 

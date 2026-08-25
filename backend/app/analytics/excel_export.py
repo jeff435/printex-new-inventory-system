@@ -159,6 +159,45 @@ def render_goods_received_excel(rows: list) -> bytes:
     return buf.getvalue()
 
 
+def render_category_value_excel(rows: list) -> bytes:
+    """rows: list of app.analytics.schemas.CategoryValueRow — current stock
+    value by category, mirroring the register's summary-by-column table."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Stock Value"
+    headers = ["Category", "Line Items", "Total Qty", "Stock Value (USD)", "Potential Sales (KES)"]
+    ws.append(headers)
+    _style_header(ws, ncols=len(headers))
+    total_qty = total_usd = total_kes = 0
+    for r in rows:
+        ws.append([
+            r.category_name, r.line_items, r.total_qty,
+            float(r.stock_value_usd), float(r.potential_sales_kes),
+        ])
+        total_qty += r.total_qty
+        total_usd += float(r.stock_value_usd)
+        total_kes += float(r.potential_sales_kes)
+    ws.append(["TOTAL", sum(r.line_items for r in rows), total_qty, total_usd, total_kes])
+    for col, width in zip("ABCDE", (34, 12, 12, 18, 20)):
+        ws.column_dimensions[col].width = width
+
+    if rows:
+        n = len(rows)
+        bar = BarChart()
+        bar.title = "Potential Sales by Category (KES)"
+        bar.y_axis.title = "KES"
+        data_ref = Reference(ws, min_col=5, min_row=1, max_row=1 + n)
+        cats_ref = Reference(ws, min_col=1, min_row=2, max_row=1 + n)
+        bar.add_data(data_ref, titles_from_data=True)
+        bar.set_categories(cats_ref)
+        bar.width, bar.height = 18, 10
+        ws.add_chart(bar, "G2")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def render_stock_status_excel(report, customer_rows: list | None = None) -> bytes:
     """report: an app.analytics.schemas.StockStatusReport (or None if this
     call is only exporting customer_rows). customer_rows: a list of

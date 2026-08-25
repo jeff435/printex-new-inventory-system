@@ -229,6 +229,12 @@ export const analyticsApi = {
     api.get("/analytics/goods-received/export/excel", { params, responseType: "blob" }),
   goodsReceivedPdfBlob: (params?: Record<string, unknown>) =>
     api.get("/analytics/goods-received/pdf", { params, responseType: "blob" }),
+  stockValueByCategory: () =>
+    api.get("/analytics/stock-value"),
+  stockValueExcelBlob: () =>
+    api.get("/analytics/stock-value/export/excel", { responseType: "blob" }),
+  stockValuePdfBlob: () =>
+    api.get("/analytics/stock-value/pdf", { responseType: "blob" }),
   stockMovements: (params?: Record<string, unknown>) =>
     api.get("/analytics/stock-movements", { params }),
   stockStatusPdfBlob: (params?: Record<string, unknown>) =>

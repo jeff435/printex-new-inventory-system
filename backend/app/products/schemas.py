@@ -54,12 +54,15 @@ class ProductOut(BaseModel):
     id: str
     sku: str
     part_number: Optional[str] = None
+    register_column: Optional[str] = None
+    register_note: Optional[str] = None
     name: str
     slug: str
     description: Optional[str]
     short_description: Optional[str]
     price_kes: int            # cents
     compare_price_kes: Optional[int]
+    buying_price_usd: Optional[int] = None   # USD cents — purchase cost, admin-only
     weight_grams: Optional[int]
     unit: Optional[str]
     unit_value: Optional[float]
@@ -70,6 +73,7 @@ class ProductOut(BaseModel):
     is_online_exclusive: bool
     is_private_label: bool
     status: str
+    needs_pricing: bool = False
     rating_avg: Optional[float] = None
     rating_count: int = 0
     category: Optional[CategoryOut]
@@ -81,10 +85,12 @@ class ProductListItem(BaseModel):
     id: str
     sku: str
     part_number: Optional[str] = None
+    register_column: Optional[str] = None
     name: str
     slug: str
     price_kes: int
     compare_price_kes: Optional[int]
+    buying_price_usd: Optional[int] = None
     thumbnail_url: Optional[str]
     unit: Optional[str]
     unit_value: Optional[float]
@@ -99,6 +105,8 @@ class ProductListItem(BaseModel):
 class ProductCreate(BaseModel):
     sku: str
     part_number: Optional[str] = None
+    register_column: Optional[str] = None
+    register_note: Optional[str] = None
     name: str
     slug: str
     description: Optional[str] = None
@@ -107,7 +115,10 @@ class ProductCreate(BaseModel):
     brand_id: Optional[str] = None
     price_kes: int
     compare_price_kes: Optional[int] = None
-    cost_price_kes: Optional[int] = None
+    # Purchase cost in USD cents. Deliberately a SEPARATE currency from
+    # price_kes — Printex buys in USD and sells in KES, and there is no
+    # exchange rate anywhere in this system on purpose (see Product model).
+    buying_price_usd: Optional[int] = None
     weight_grams: Optional[int] = None
     unit: Optional[str] = None
     unit_value: Optional[float] = None
@@ -124,13 +135,15 @@ class ProductCreate(BaseModel):
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
     part_number: Optional[str] = None
+    register_column: Optional[str] = None
+    register_note: Optional[str] = None
     description: Optional[str] = None
     short_description: Optional[str] = None
     category_id: Optional[str] = None
     brand_id: Optional[str] = None
     price_kes: Optional[int] = None
     compare_price_kes: Optional[int] = None
-    cost_price_kes: Optional[int] = None
+    buying_price_usd: Optional[int] = None
     weight_grams: Optional[int] = None
     unit: Optional[str] = None
     unit_value: Optional[float] = None

@@ -1,6 +1,7 @@
 """Print-quality PDF exports for the analytics module (stock status and
 customer purchases), via reportlab — same approach as app.proforma.pdf."""
 import io
+from decimal import Decimal
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -246,6 +247,9 @@ def render_goods_received_pdf(rows) -> bytes:
 
     doc.build(story)
     return buf.getvalue()
+
+
+def render_customer_purchases_pdf(rows) -> bytes:
     """rows: list of app.analytics.schemas.CustomerPurchaseRow"""
     buf = io.BytesIO()
     styles = getSampleStyleSheet()
@@ -287,6 +291,69 @@ def render_goods_received_pdf(rows) -> bytes:
             ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ]))
         story.append(tbl)
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def render_category_value_pdf(rows) -> bytes:
+    """rows: list of app.analytics.schemas.CategoryValueRow — current stock
+    value by category, mirroring the register's summary-by-column table."""
+    buf = io.BytesIO()
+    styles = getSampleStyleSheet()
+    doc = _base_doc(buf, "Stock Value & Potential Sales")
+    story = []
+    _header(story, styles, "Stock Value & Potential Sales by Category",
+            f"Current stock on hand · Generated {datetime_now_str()}")
+
+    cell, hdr, num, num_hdr = _cell_styles(styles)
+    data = [[
+        Paragraph("Category", hdr), Paragraph("Line Items", num_hdr),
+        Paragraph("Total Qty", num_hdr), Paragraph("Stock Value (USD)", num_hdr),
+        Paragraph("Potential Sales (KES)", num_hdr),
+    ]]
+    total_items = total_qty = 0
+    total_usd = total_kes = Decimal("0")
+    for r in rows:
+        data.append([
+            Paragraph(_esc(r.category_name), cell),
+            Paragraph(str(r.line_items), num),
+            Paragraph(str(r.total_qty), num),
+            Paragraph(f"{float(r.stock_value_usd):,.2f}", num),
+            Paragraph(f"{float(r.potential_sales_kes):,.2f}", num),
+        ])
+        total_items += r.line_items
+        total_qty += r.total_qty
+        total_usd += r.stock_value_usd
+        total_kes += r.potential_sales_kes
+
+    if len(data) == 1:
+        story.append(Paragraph("No priced stock on hand.", styles["Normal"]))
+    else:
+        data.append([
+            Paragraph("<b>TOTAL</b>", hdr), Paragraph(f"<b>{total_items}</b>", num_hdr),
+            Paragraph(f"<b>{total_qty}</b>", num_hdr),
+            Paragraph(f"<b>{float(total_usd):,.2f}</b>", num_hdr),
+            Paragraph(f"<b>{float(total_kes):,.2f}</b>", num_hdr),
+        ])
+        tbl = Table(data, colWidths=[54*mm, 24*mm, 24*mm, 32*mm, 40*mm], repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("BACKGROUND", (0, -1), (-1, -1), LIGHT_GREY),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, LIGHT_GREY]),
+            ("GRID", (0, 0), (-1, -1), 0.5, BORDER_GREY),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(tbl)
+        story.append(Paragraph(
+            "Stock Value (USD) = Qty × Buying Price. Potential Sales (KES) = Qty × Selling Price. "
+            "The two totals are separate currencies and are not comparable to one another.",
+            styles["Normal"],
+        ))
 
     doc.build(story)
     return buf.getvalue()

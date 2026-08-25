@@ -2,42 +2,42 @@
  "categories": [
   {
    "code": "A",
-   "name": "Valves, Cylinders & Pistons",
+   "name": "A \u2014 Valves, Cylinders & Pistons",
    "slug": "valves-cylinders-pistons",
    "description": "Control, vibrator, solenoid and pneumatic valves, cylinders and pistons.",
    "colour": "#E4572E"
   },
   {
    "code": "B",
-   "name": "Bellows, Diaphragms & Spindles",
+   "name": "B \u2014 Bellows, Diaphragms & Spindles",
    "slug": "bellows-diaphragms-spindles",
    "description": "Bellows, autoplate diaphragms, friction wheels and adjusting spindles.",
    "colour": "#F4A261"
   },
   {
    "code": "C",
-   "name": "Suckers, Cups & Gears",
+   "name": "C \u2014 Suckers, Cups & Gears",
    "slug": "suckers-cups-gears",
    "description": "Rubber and cup suckers, block cups, feeder suckers, bearings and gears.",
    "colour": "#2A9D8F"
   },
   {
    "code": "D",
-   "name": "Cam Followers & Bearings",
+   "name": "D \u2014 Cam Followers & Bearings",
    "slug": "cam-followers-bearings",
    "description": "Cam followers, one-way bearings and needle roller bearings.",
    "colour": "#4A7FB5"
   },
   {
    "code": "E",
-   "name": "Grippers, Pins & Blanket Hooks",
+   "name": "E \u2014 Grippers, Pins & Blanket Hooks",
    "slug": "grippers-pins-blanket-hooks",
    "description": "Grippers, gripper tips, tapered pins, guide pins and blanket hooks.",
    "colour": "#8E7CC3"
   },
   {
    "code": "F",
-   "name": "Springs, Screws & Ink Dividers",
+   "name": "F \u2014 Springs, Screws & Ink Dividers",
    "slug": "springs-screws-ink-dividers",
    "description": "Torsion, tension and compression springs, screws and ink dividers.",
    "colour": "#D65D8F"

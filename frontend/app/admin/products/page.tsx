@@ -126,6 +126,7 @@ export default function AdminProductsPage() {
                                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Part No.</th>
                                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">SKU</th>
                                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Price</th>
+                                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Buying (USD)</th>
                                     <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                                 </tr>
@@ -156,6 +157,9 @@ export default function AdminProductsPage() {
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <p className="font-bold text-gray-900">KES {(p.price_kes / 100).toLocaleString()}</p>
+                                        </td>
+                                        <td className="px-4 py-3 text-right hidden lg:table-cell text-gray-500">
+                                            {p.buying_price_usd != null ? `$${(p.buying_price_usd / 100).toLocaleString()}` : "—"}
                                         </td>
                                         <td className="px-4 py-3 text-center">
                                             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${STATUS_STYLE[p.status] ?? "bg-gray-100 text-gray-500"}`}>

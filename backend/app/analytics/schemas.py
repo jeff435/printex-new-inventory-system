@@ -27,6 +27,21 @@ class TopPartRow(BaseModel):
     value_moved: Decimal
 
 
+class CategoryValueRow(BaseModel):
+    """One category's slice of stock currently on hand — mirrors the
+    'Summary by Register Column' table in the Printex parts register:
+    line items, total qty, stock value in USD (qty × buying price) and
+    potential sales in KES (qty × selling price). Live figures, not a
+    point-in-time import snapshot — they move as stock moves."""
+    category_id: Optional[str] = None
+    category_name: str
+    register_column: Optional[str] = None
+    line_items: int
+    total_qty: int
+    stock_value_usd: Decimal
+    potential_sales_kes: Decimal
+
+
 class GoodsReceivedRow(BaseModel):
     """One product's share of 'new stock added' in the period — combines a
     received Purchase Order (reason=goods_received) and a manual "+" on the

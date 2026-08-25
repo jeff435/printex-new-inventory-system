@@ -95,6 +95,8 @@ export default function DirectorAnalyticsPage() {
     const [exporting, setExporting] = useState(false);
     const [goodsExporting, setGoodsExporting] = useState(false);
     const [goodsDownloading, setGoodsDownloading] = useState(false);
+    const [svExporting, setSvExporting] = useState(false);
+    const [svDownloading, setSvDownloading] = useState(false);
 
     const { start, end } = useMemo(() => rangeToDates(RANGES[rangeLabel]), [rangeLabel]);
 
@@ -122,6 +124,15 @@ export default function DirectorAnalyticsPage() {
         queryKey: ["analytics-goods-received", start, end],
         queryFn: () => analyticsApi.goodsReceived({ start, end, limit: 200 }).then((r) => r.data),
         enabled: activeTab === "goods",
+    });
+
+    // Current stock on hand by category (A–F), USD stock value + KES
+    // potential sales — mirrors the register's "Summary by Register
+    // Column" table. Not period-filtered: it's a live snapshot.
+    const { data: stockValue, isLoading: stockValueLoading } = useQuery({
+        queryKey: ["analytics-stock-value"],
+        queryFn: () => analyticsApi.stockValueByCategory().then((r) => r.data),
+        enabled: activeTab === "overview",
     });
 
     const handleExport = async () => {
@@ -218,6 +229,60 @@ export default function DirectorAnalyticsPage() {
             toast.error(message);
         } finally {
             setGoodsDownloading(false);
+        }
+    };
+
+    // Stock Value & Potential Sales by Category — its own Print / Export to
+    // Excel / Download PDF, same pattern as the Goods Received section.
+    const handleStockValuePrint = () => window.print();
+
+    const handleStockValueExportExcel = async () => {
+        setSvExporting(true);
+        try {
+            const res = await analyticsApi.stockValueExcelBlob();
+            downloadBlob(res.data, `printex-stock-value-${new Date().toISOString().slice(0, 10)}.xlsx`);
+            toast.success("Stock value report downloaded");
+        } catch (err: any) {
+            let message = "Failed to export report";
+            const data = err?.response?.data;
+            if (data instanceof Blob) {
+                try {
+                    const text = await data.text();
+                    message = JSON.parse(text)?.detail || JSON.parse(text)?.message || message;
+                } catch {
+                    // body wasn't JSON — keep the generic message
+                }
+            } else if (data?.message || data?.detail) {
+                message = data.message || data.detail;
+            }
+            toast.error(message);
+        } finally {
+            setSvExporting(false);
+        }
+    };
+
+    const handleStockValueDownloadPdf = async () => {
+        setSvDownloading(true);
+        try {
+            const res = await analyticsApi.stockValuePdfBlob();
+            downloadBlob(res.data, `printex-stock-value-${new Date().toISOString().slice(0, 10)}.pdf`);
+            toast.success("Stock value PDF downloaded");
+        } catch (err: any) {
+            let message = "Failed to download PDF";
+            const data = err?.response?.data;
+            if (data instanceof Blob) {
+                try {
+                    const text = await data.text();
+                    message = JSON.parse(text)?.detail || JSON.parse(text)?.message || message;
+                } catch {
+                    // body wasn't JSON — keep the generic message
+                }
+            } else if (data?.message || data?.detail) {
+                message = data.message || data.detail;
+            }
+            toast.error(message);
+        } finally {
+            setSvDownloading(false);
         }
     };
 
@@ -409,6 +474,73 @@ export default function DirectorAnalyticsPage() {
                                     <Bar dataKey="quantity_moved" fill="#4f46e5" radius={[6, 6, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {activeTab === "overview" && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-5 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-900">Stock Value & Potential Sales</h2>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                                Current stock on hand, by category — buying value in USD, selling value in KES
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap print:hidden">
+                            <button
+                                onClick={handleStockValuePrint}
+                                className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all"
+                            >
+                                <Printer size={13} /> Print
+                            </button>
+                            <button
+                                onClick={handleStockValueExportExcel}
+                                disabled={svExporting}
+                                className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
+                            >
+                                {svExporting ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />}
+                                {svExporting ? "Preparing…" : "Export to Excel"}
+                            </button>
+                            <button
+                                onClick={handleStockValueDownloadPdf}
+                                disabled={svDownloading}
+                                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all"
+                            >
+                                {svDownloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                                {svDownloading ? "Preparing…" : "Download PDF"}
+                            </button>
+                        </div>
+                    </div>
+                    {stockValueLoading ? (
+                        <p className="text-sm text-gray-400 py-10 text-center">Loading…</p>
+                    ) : !stockValue || stockValue.length === 0 ? (
+                        <p className="text-sm text-gray-400 py-10 text-center">No priced stock on hand yet.</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-gray-400 text-xs border-b border-gray-100">
+                                        <th className="px-5 py-2.5 font-medium">Category</th>
+                                        <th className="px-5 py-2.5 font-medium text-right">Line Items</th>
+                                        <th className="px-5 py-2.5 font-medium text-right">Total Qty</th>
+                                        <th className="px-5 py-2.5 font-medium text-right">Stock Value (USD)</th>
+                                        <th className="px-5 py-2.5 font-medium text-right">Potential Sales (KES)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {stockValue.map((c: any) => (
+                                        <tr key={c.category_id ?? c.category_name} className="border-b border-gray-50 text-gray-700">
+                                            <td className="px-5 py-2.5 font-semibold">{c.category_name}</td>
+                                            <td className="px-5 py-2.5 text-right">{c.line_items}</td>
+                                            <td className="px-5 py-2.5 text-right">{c.total_qty}</td>
+                                            <td className="px-5 py-2.5 text-right">${Number(c.stock_value_usd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-5 py-2.5 text-right font-semibold">{kes(c.potential_sales_kes)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     )}
                 </div>

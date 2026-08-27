@@ -216,6 +216,7 @@ async def list_products(
 
     # Paginate
     offset = (page - 1) * limit
+    used_fallback = False
     try:
         result = await db.execute(query.offset(offset).limit(limit))
         products = result.scalars().all()
@@ -257,9 +258,25 @@ async def list_products(
             fallback_query = fallback_query.where(Product.is_online_exclusive == is_online_exclusive)
         result = await db.execute(fallback_query.offset(offset).limit(limit))
         products = result.scalars().all()
+        used_fallback = True
+
+    if used_fallback:
+        # suppliers wasn't eager-loaded on this path (that's the whole point
+        # of the fallback — see above), so letting ProductListItem touch
+        # p.suppliers here would trigger a lazy-load outside an await
+        # context and raise MissingGreenlet, crashing the request anyway.
+        # Build items by hand with suppliers forced to [] instead.
+        items = [
+            ProductListItem.model_validate(
+                {**{c.name: getattr(p, c.name) for c in p.__table__.columns}, "suppliers": []}
+            )
+            for p in products
+        ]
+    else:
+        items = [ProductListItem.model_validate(p) for p in products]
 
     return {
-        "items": [ProductListItem.model_validate(p) for p in products],
+        "items": items,
         "total": total,
         "page": page,
         "limit": limit,

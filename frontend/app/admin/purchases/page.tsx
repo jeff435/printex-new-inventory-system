@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { purchasesApi, suppliersApi, expensesApi, productsApi, api } from "@/lib/api";
 import toast from "react-hot-toast";
-import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search, ChevronUp, ChevronDown, Printer, FileSpreadsheet, Download, Loader2 } from "lucide-react";
+import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search, ChevronUp, ChevronDown, Printer, FileSpreadsheet, Download, Loader2, Pencil } from "lucide-react";
 import Link from "next/link";
 
 const inp = "w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 placeholder:text-gray-400";
@@ -532,20 +532,23 @@ function SupplierTaggedParts({ supplierId, supplierName, branchList }: { supplie
             </div>
             <div className="max-h-52 overflow-y-auto space-y-1">
                 {parts.map((p: any) => (
-                    <div key={p.product_id} className="flex items-center gap-2 text-xs py-1">
-                        <input
-                            type="checkbox"
-                            checked={!!checked[p.product_id]}
-                            onChange={(e) => setChecked((prev) => ({ ...prev, [p.product_id]: e.target.checked }))}
-                        />
+                    <div key={p.product_id} className="flex items-center justify-between gap-2 text-xs py-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <input
+                                type="checkbox"
+                                checked={!!checked[p.product_id]}
+                                onChange={(e) => setChecked((prev) => ({ ...prev, [p.product_id]: e.target.checked }))}
+                            />
+                            <span className="font-mono text-blue-600 flex-shrink-0">{p.part_number || "—"}</span>
+                            <span className="text-gray-700 truncate">{p.name}</span>
+                            {p.price_usd != null && <span className="text-gray-400 flex-shrink-0">· ${(p.price_usd / 100).toLocaleString()}</span>}
+                        </div>
                         <Link
                             href={`/admin/products/new?edit=${p.product_id}`}
-                            className="flex items-center gap-2 hover:underline"
-                            title="Open this part in the catalogue"
+                            className="flex items-center gap-1 text-blue-600 hover:underline flex-shrink-0"
+                            title="Edit this part"
                         >
-                            <span className="font-mono text-blue-600">{p.part_number || "—"}</span>
-                            <span className="text-gray-700">{p.name}</span>
-                            {p.price_usd != null && <span className="text-gray-400">· ${(p.price_usd / 100).toLocaleString()}</span>}
+                            <Pencil size={11} /> Edit
                         </Link>
                     </div>
                 ))}

@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import ProgrammingError, OperationalError
 from typing import Optional, List
 import uuid
 from datetime import datetime, timezone
@@ -215,8 +216,47 @@ async def list_products(
 
     # Paginate
     offset = (page - 1) * limit
-    result = await db.execute(query.offset(offset).limit(limit))
-    products = result.scalars().all()
+    try:
+        result = await db.execute(query.offset(offset).limit(limit))
+        products = result.scalars().all()
+    except (ProgrammingError, OperationalError):
+        # product_suppliers migration (009_product_suppliers.sql) hasn't been
+        # run against this database yet, so the supplier eager-load below
+        # fails on every single product listing — this used to take the
+        # whole page down silently (frontend showed "No products yet" with
+        # no error). Degrade gracefully instead: retry without that eager
+        # load so the catalogue still loads; supplier tags just won't show
+        # until the migration is applied.
+        await db.rollback()
+        fallback_query = select(Product).options(
+            selectinload(Product.category), selectinload(Product.brand),
+        )
+        if is_manager:
+            if status:
+                fallback_query = fallback_query.where(Product.status == status.upper())
+        else:
+            fallback_query = fallback_query.where(Product.status == ProductStatus.ACTIVE)
+        if category_id:
+            fallback_query = fallback_query.where(Product.category_id == category_id)
+        if brand_id:
+            fallback_query = fallback_query.where(Product.brand_id == brand_id)
+        if search:
+            fallback_query = fallback_query.where(
+                or_(
+                    Product.name.ilike(f"%{search}%"),
+                    Product.description.ilike(f"%{search}%"),
+                    Product.sku.ilike(f"%{search}%"),
+                    Product.part_number.ilike(f"%{search}%"),
+                )
+            )
+        if min_price is not None:
+            fallback_query = fallback_query.where(Product.price_kes >= min_price)
+        if max_price is not None:
+            fallback_query = fallback_query.where(Product.price_kes <= max_price)
+        if is_online_exclusive is not None:
+            fallback_query = fallback_query.where(Product.is_online_exclusive == is_online_exclusive)
+        result = await db.execute(fallback_query.offset(offset).limit(limit))
+        products = result.scalars().all()
 
     return {
         "items": [ProductListItem.model_validate(p) for p in products],
@@ -240,16 +280,29 @@ async def get_product(slug_or_id: str, db: AsyncSession = Depends(get_db)):
     else:
         condition = Product.slug == slug_or_id
 
-    result = await db.execute(
-        select(Product)
-        .where(condition)
-        .options(
-            selectinload(Product.category).selectinload(Category.children),
-            selectinload(Product.brand),
-            selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
+    try:
+        result = await db.execute(
+            select(Product)
+            .where(condition)
+            .options(
+                selectinload(Product.category).selectinload(Category.children),
+                selectinload(Product.brand),
+                selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
+            )
         )
-    )
-    product = result.scalar_one_or_none()
+        product = result.scalar_one_or_none()
+    except (ProgrammingError, OperationalError):
+        # Same missing-migration fallback as list_products above.
+        await db.rollback()
+        result = await db.execute(
+            select(Product)
+            .where(condition)
+            .options(
+                selectinload(Product.category).selectinload(Category.children),
+                selectinload(Product.brand),
+            )
+        )
+        product = result.scalar_one_or_none()
     if not product:
         raise NotFoundError("Product")
     return product

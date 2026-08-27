@@ -29,6 +29,18 @@ class SupplierOut(SupplierCreate):
     model_config = {"from_attributes": True}
 
 
+class SupplierTaggedPart(BaseModel):
+    """One product tagged with this supplier — from Product.suppliers
+    (app.products.models.ProductSupplier), independent of whether it's
+    ever actually been bought. This is what the Suppliers page lists with
+    checkboxes to build a new purchase order."""
+    product_id: str
+    name: str
+    sku: str
+    part_number: Optional[str] = None
+    price_usd: Optional[int] = None
+
+
 class PurchaseItemCreate(BaseModel):
     product_id: str
     quantity: int
@@ -38,6 +50,9 @@ class PurchaseItemCreate(BaseModel):
 class PurchaseItemOut(BaseModel):
     id: str
     product_id: str
+    product_name: Optional[str] = None
+    product_sku: Optional[str] = None
+    product_part_number: Optional[str] = None
     quantity: int
     unit_cost: Decimal
     subtotal: Decimal
@@ -55,6 +70,7 @@ class PurchaseOut(BaseModel):
     id: str
     purchase_number: str
     supplier_id: str
+    supplier_name: Optional[str] = None
     branch_id: str
     status: str
     total_amount: Decimal

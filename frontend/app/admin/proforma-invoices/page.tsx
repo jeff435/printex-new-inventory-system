@@ -592,16 +592,25 @@ export default function ProformaInvoicesPage() {
                                 );
                             })}
                         </div>
-                        <div className="flex items-center gap-4 mt-2">
-                            <button onClick={addItem} className="text-xs text-blue-600 hover:underline">+ Add blank line item</button>
+                        <div className="flex items-center gap-2 mt-2">
                             <button
                                 onClick={() => setAddPartModalOpen(true)}
                                 className="glass-btn text-xs px-3 py-1.5 flex items-center gap-1.5"
                             >
                                 <Search size={12} />
-                                Add Part
+                                Add from Inventory
+                            </button>
+                            <button
+                                onClick={addItem}
+                                className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm"
+                            >
+                                <Plus size={12} />
+                                Add Manually
                             </button>
                         </div>
+                        <p className="text-xs text-gray-400">
+                            "Add from Inventory" pulls a part's price and stock from the catalogue. "Add Manually" lets you type any description and set its price yourself — for anything not in the system. VAT (16%) is applied the same way either way.
+                        </p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

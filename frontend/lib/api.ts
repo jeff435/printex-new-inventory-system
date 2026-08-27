@@ -259,12 +259,15 @@ export const purchasesApi = {
   create: (data: unknown) => api.post("/purchases", data),
   receive: (id: string) => api.post(`/purchases/${id}/receive`),
   cancel: (id: string) => api.post(`/purchases/${id}/cancel`),
+  pdfBlob: (id: string) => api.get(`/purchases/${id}/pdf`, { responseType: "blob" }),
+  excelBlob: (id: string) => api.get(`/purchases/${id}/export/excel`, { responseType: "blob" }),
 };
 
 export const suppliersApi = {
   list: (params?: Record<string, unknown>) => api.get("/suppliers", { params }),
   create: (data: unknown) => api.post("/suppliers", data),
   update: (id: string, data: unknown) => api.patch(`/suppliers/${id}`, data),
+  taggedParts: (id: string) => api.get(`/suppliers/${id}/tagged-parts`),
 };
 
 export const expensesApi = {

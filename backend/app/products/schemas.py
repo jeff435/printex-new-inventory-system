@@ -50,6 +50,20 @@ class BrandCreate(BaseModel):
     logo_url: Optional[str] = None
 
 
+class ProductSupplierIn(BaseModel):
+    """One row of the product's Suppliers section — tag a supplier and
+    (optionally) their price for this part, in USD cents."""
+    supplier_id: str
+    price_usd: Optional[int] = None
+
+
+class ProductSupplierOut(BaseModel):
+    supplier_id: str
+    supplier_name: str
+    price_usd: Optional[int] = None
+    model_config = {"from_attributes": True}
+
+
 class ProductOut(BaseModel):
     id: str
     sku: str
@@ -78,6 +92,7 @@ class ProductOut(BaseModel):
     rating_count: int = 0
     category: Optional[CategoryOut]
     brand: Optional[BrandOut]
+    suppliers: List[ProductSupplierOut] = []
     model_config = {"from_attributes": True}
 
 
@@ -99,6 +114,7 @@ class ProductListItem(BaseModel):
     needs_pricing: bool = False
     rating_avg: Optional[float] = None
     rating_count: int = 0
+    suppliers: List[ProductSupplierOut] = []
     model_config = {"from_attributes": True}
 
 
@@ -130,6 +146,7 @@ class ProductCreate(BaseModel):
     is_online_exclusive: bool = False
     is_private_label: bool = False
     status: Optional[str] = None
+    suppliers: List[ProductSupplierIn] = []
 
 
 class ProductUpdate(BaseModel):
@@ -154,6 +171,7 @@ class ProductUpdate(BaseModel):
     is_online_exclusive: Optional[bool] = None
     is_private_label: Optional[bool] = None
     status: Optional[str] = None
+    suppliers: Optional[List[ProductSupplierIn]] = None
 
 
 class InventoryProductMini(BaseModel):

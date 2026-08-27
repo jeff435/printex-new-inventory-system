@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -13,11 +14,13 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.auth.models import User
 from app.purchases.models import Supplier, Purchase, PurchaseItem, PurchaseStatus, Expense
 from app.purchases.schemas import (
-    SupplierCreate, SupplierUpdate, SupplierOut,
+    SupplierCreate, SupplierUpdate, SupplierOut, SupplierTaggedPart,
     PurchaseCreate, PurchaseOut,
     ExpenseCreate, ExpenseOut,
 )
-from app.products.models import Product, InventoryItem, StockMovement, StockMovementReason
+from app.purchases.pdf import render_purchase_order_pdf
+from app.purchases.excel_export import render_purchase_order_excel
+from app.products.models import Product, InventoryItem, StockMovement, StockMovementReason, ProductSupplier
 
 router = APIRouter(prefix="/purchases", tags=["Purchases"])
 suppliers_router = APIRouter(prefix="/suppliers", tags=["Suppliers"])
@@ -69,6 +72,34 @@ async def update_supplier(
     return supplier
 
 
+@suppliers_router.get("/{supplier_id}/tagged-parts", response_model=List[SupplierTaggedPart])
+async def get_supplier_tagged_parts(
+    supplier_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    """Every product tagged with this supplier on the product's own
+    Suppliers section (independent of purchase history) — what the
+    Suppliers page checklists to build a new purchase order from."""
+    supplier = await db.get(Supplier, supplier_id)
+    if not supplier:
+        raise NotFoundError("Supplier")
+
+    result = await db.execute(
+        select(Product, ProductSupplier.price_usd)
+        .join(ProductSupplier, ProductSupplier.product_id == Product.id)
+        .where(ProductSupplier.supplier_id == supplier_id)
+        .order_by(Product.name)
+    )
+    return [
+        SupplierTaggedPart(
+            product_id=p.id, name=p.name, sku=p.sku,
+            part_number=p.part_number, price_usd=price_usd,
+        )
+        for p, price_usd in result.all()
+    ]
+
+
 # ── Purchases ────────────────────────────────────────────────────────────────
 
 def _gen_purchase_number() -> str:
@@ -82,7 +113,7 @@ async def list_purchases(
     status: Optional[str] = Query(None),
     supplier_id: Optional[str] = Query(None),
 ):
-    query = select(Purchase).options(selectinload(Purchase.items))
+    query = select(Purchase).options(selectinload(Purchase.items).selectinload(PurchaseItem.product), selectinload(Purchase.supplier))
     if status:
         query = query.where(Purchase.status == status.lower())
     if supplier_id:
@@ -99,12 +130,53 @@ async def get_purchase(
 ):
     result = await db.execute(
         select(Purchase).where(Purchase.id == purchase_id)
-        .options(selectinload(Purchase.items))
+        .options(selectinload(Purchase.items).selectinload(PurchaseItem.product), selectinload(Purchase.supplier))
     )
     purchase = result.scalar_one_or_none()
     if not purchase:
         raise NotFoundError("Purchase")
     return purchase
+
+
+@router.get("/{purchase_id}/pdf")
+async def export_purchase_pdf(
+    purchase_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    result = await db.execute(
+        select(Purchase).where(Purchase.id == purchase_id)
+        .options(selectinload(Purchase.items).selectinload(PurchaseItem.product), selectinload(Purchase.supplier))
+    )
+    purchase = result.scalar_one_or_none()
+    if not purchase:
+        raise NotFoundError("Purchase")
+    pdf_bytes = render_purchase_order_pdf(purchase)
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{purchase.purchase_number}.pdf"'},
+    )
+
+
+@router.get("/{purchase_id}/export/excel")
+async def export_purchase_excel(
+    purchase_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    result = await db.execute(
+        select(Purchase).where(Purchase.id == purchase_id)
+        .options(selectinload(Purchase.items).selectinload(PurchaseItem.product), selectinload(Purchase.supplier))
+    )
+    purchase = result.scalar_one_or_none()
+    if not purchase:
+        raise NotFoundError("Purchase")
+    xlsx_bytes = render_purchase_order_excel(purchase)
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{purchase.purchase_number}.xlsx"'},
+    )
 
 
 @router.post("", response_model=PurchaseOut, status_code=201)
@@ -145,7 +217,7 @@ async def create_purchase(
 
     result = await db.execute(
         select(Purchase).where(Purchase.id == purchase.id)
-        .options(selectinload(Purchase.items))
+        .options(selectinload(Purchase.items).selectinload(PurchaseItem.product), selectinload(Purchase.supplier))
     )
     return result.scalar_one()
 
@@ -160,7 +232,7 @@ async def receive_purchase(
     purchase's branch and writes a StockMovement (GOODS_RECEIVED) for each."""
     result = await db.execute(
         select(Purchase).where(Purchase.id == purchase_id)
-        .options(selectinload(Purchase.items))
+        .options(selectinload(Purchase.items).selectinload(PurchaseItem.product), selectinload(Purchase.supplier))
     )
     purchase = result.scalar_one_or_none()
     if not purchase:
@@ -207,7 +279,7 @@ async def receive_purchase(
 
     result = await db.execute(
         select(Purchase).where(Purchase.id == purchase_id)
-        .options(selectinload(Purchase.items))
+        .options(selectinload(Purchase.items).selectinload(PurchaseItem.product), selectinload(Purchase.supplier))
     )
     return result.scalar_one()
 
@@ -228,7 +300,7 @@ async def cancel_purchase(
 
     result = await db.execute(
         select(Purchase).where(Purchase.id == purchase_id)
-        .options(selectinload(Purchase.items))
+        .options(selectinload(Purchase.items).selectinload(PurchaseItem.product), selectinload(Purchase.supplier))
     )
     return result.scalar_one()
 

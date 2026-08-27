@@ -153,10 +153,48 @@ class Product(Base):
         "OrderItem", foreign_keys="[OrderItem.product_id]", back_populates="product")
     ratings = relationship(
         "ProductRating", back_populates="product", cascade="all, delete-orphan")
+    suppliers = relationship(
+        "ProductSupplier", back_populates="product", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_products_name_search", "name"),
         Index("ix_products_category_status", "category_id", "status"),
+    )
+
+
+class ProductSupplier(Base):
+    """Tags a product with a supplier who can sell it, and that supplier's
+    price for it — a reference list, independent of whether a purchase has
+    ever actually happened. This is what the Suppliers page reads to show
+    "everything this supplier could sell us" with checkboxes, so staff can
+    build a new purchase order from it. Price is in USD cents, same
+    convention as Product.buying_price_usd — no currency conversion."""
+    __tablename__ = "product_suppliers"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    product_id = Column(UUID(as_uuid=False), ForeignKey(
+        "products.id", ondelete="CASCADE"), nullable=False)
+    supplier_id = Column(UUID(as_uuid=False), ForeignKey(
+        "suppliers.id", ondelete="CASCADE"), nullable=False)
+    price_usd = Column(Integer, nullable=True)
+
+    product = relationship("Product", back_populates="suppliers")
+    # One-directional — Supplier lives in app.purchases.models, and doesn't
+    # need a back-reference here to work (SQLAlchemy resolves "Supplier" by
+    # name via the shared registry, same mechanism as Order in app.main).
+    supplier = relationship("Supplier")
+
+    @property
+    def supplier_name(self):
+        # Requires `.supplier` to have been eager-loaded (selectinload) —
+        # this is async SQLAlchemy, so a lazy load here outside an await
+        # context would raise MissingGreenlet. Every endpoint that returns
+        # this via ProductSupplierOut eager-loads it for that reason.
+        return self.supplier.name if self.supplier else None
+
+    __table_args__ = (
+        Index("ix_product_suppliers_product", "product_id"),
+        Index("ix_product_suppliers_supplier", "supplier_id"),
     )
 
 

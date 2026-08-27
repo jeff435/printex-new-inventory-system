@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { purchasesApi, suppliersApi, expensesApi, productsApi, api } from "@/lib/api";
 import toast from "react-hot-toast";
-import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search } from "lucide-react";
+import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search, ChevronUp, ChevronDown, Printer, FileSpreadsheet, Download, Loader2 } from "lucide-react";
 
 const inp = "w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 placeholder:text-gray-400";
 
@@ -403,15 +403,138 @@ function ExpensesTab() {
 
 // ── Suppliers ────────────────────────────────────────────────────────────────
 
+function SupplierTaggedParts({ supplierId, branchList }: { supplierId: string; branchList: any[] }) {
+    const queryClient = useQueryClient();
+    const [checked, setChecked] = useState<Record<string, boolean>>({});
+    const [createdPurchase, setCreatedPurchase] = useState<any | null>(null);
+    const [busy, setBusy] = useState<"" | "print" | "excel" | "pdf">("");
+
+    const { data: parts, isLoading } = useQuery({
+        queryKey: ["supplier-tagged-parts", supplierId],
+        queryFn: () => suppliersApi.taggedParts(supplierId).then((r) => r.data),
+    });
+
+    const createPO = useMutation({
+        mutationFn: (payload: Record<string, unknown>) => purchasesApi.create(payload),
+        onSuccess: (res) => {
+            queryClient.invalidateQueries({ queryKey: ["purchases"] });
+            toast.success(`Draft purchase order ${res.data.purchase_number} created`);
+            setCreatedPurchase(res.data);
+        },
+        onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create purchase order"),
+    });
+
+    const checkedIds = Object.keys(checked).filter((id) => checked[id]);
+
+    const handleCreatePO = () => {
+        if (checkedIds.length === 0) { toast.error("Tick at least one part first"); return; }
+        const branchId = branchList[0]?.id;
+        if (!branchId) { toast.error("No branch found — add a branch first"); return; }
+        createPO.mutate({
+            supplier_id: supplierId,
+            branch_id: branchId,
+            notes: "Draft order — created from Suppliers page tagged parts",
+            items: checkedIds.map((id) => ({ product_id: id, quantity: 1, unit_cost: 0 })),
+        });
+    };
+
+    const handlePrint = () => window.print();
+
+    const handleExportExcel = async () => {
+        if (!createdPurchase) return;
+        setBusy("excel");
+        try {
+            const res = await purchasesApi.excelBlob(createdPurchase.id);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url; a.download = `${createdPurchase.purchase_number}.xlsx`;
+            a.click(); window.URL.revokeObjectURL(url);
+        } catch {
+            toast.error("Failed to export Excel");
+        } finally {
+            setBusy("");
+        }
+    };
+
+    const handleDownloadPdf = async () => {
+        if (!createdPurchase) return;
+        setBusy("pdf");
+        try {
+            const res = await purchasesApi.pdfBlob(createdPurchase.id);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url; a.download = `${createdPurchase.purchase_number}.pdf`;
+            a.click(); window.URL.revokeObjectURL(url);
+        } catch {
+            toast.error("Failed to download PDF");
+        } finally {
+            setBusy("");
+        }
+    };
+
+    if (isLoading) return <p className="text-xs text-gray-400 px-4 pb-3">Loading tagged parts…</p>;
+    if (!parts || parts.length === 0) {
+        return <p className="text-xs text-gray-400 px-4 pb-3">No parts tagged with this supplier yet — tag one from the product's Suppliers section when adding or editing it.</p>;
+    }
+
+    return (
+        <div className="px-4 pb-4 space-y-2 border-t border-gray-100 pt-3 mt-1">
+            <p className="text-xs text-gray-500">Tick the parts to include, then create a draft purchase order for this supplier.</p>
+            <div className="max-h-52 overflow-y-auto space-y-1">
+                {parts.map((p: any) => (
+                    <label key={p.product_id} className="flex items-center gap-2 text-xs py-1 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={!!checked[p.product_id]}
+                            onChange={(e) => setChecked((prev) => ({ ...prev, [p.product_id]: e.target.checked }))}
+                        />
+                        <span className="font-mono text-blue-600">{p.part_number || "—"}</span>
+                        <span className="text-gray-700">{p.name}</span>
+                        {p.price_usd != null && <span className="text-gray-400">· ${(p.price_usd / 100).toLocaleString()}</span>}
+                    </label>
+                ))}
+            </div>
+            <button onClick={handleCreatePO} disabled={createPO.isPending} className="glass-btn text-xs disabled:opacity-50">
+                {createPO.isPending ? "Creating…" : `Create Purchase Order (${checkedIds.length} selected)`}
+            </button>
+
+            {createdPurchase && (
+                <div className="admin-card p-3 bg-green-50 border-green-100 flex flex-col gap-2">
+                    <p className="text-xs text-green-800">
+                        Draft <b>{createdPurchase.purchase_number}</b> created — visible in the Purchases tab, still needs Receive once the order actually arrives.
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap print:hidden">
+                        <button onClick={handlePrint} className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm">
+                            <Printer size={13} /> Print
+                        </button>
+                        <button onClick={handleExportExcel} disabled={busy === "excel"} className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm disabled:opacity-50">
+                            {busy === "excel" ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />} Export to Excel
+                        </button>
+                        <button onClick={handleDownloadPdf} disabled={busy === "pdf"} className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm">
+                            {busy === "pdf" ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Download PDF
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function SuppliersTab() {
     const queryClient = useQueryClient();
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState({ name: "", contact_person: "", phone: "", email: "" });
+    const [expanded, setExpanded] = useState<string | null>(null);
 
     const { data: suppliers, isLoading } = useQuery({
         queryKey: ["suppliers"],
         queryFn: () => suppliersApi.list().then((r) => r.data),
     });
+    const { data: branches } = useQuery({
+        queryKey: ["branches-for-suppliers"],
+        queryFn: () => api.get("/branches").then((r) => r.data),
+    });
+    const branchList = branches?.items ?? branches ?? [];
 
     const createMutation = useMutation({
         mutationFn: (payload: Record<string, unknown>) => suppliersApi.create(payload),
@@ -454,12 +577,24 @@ function SuppliersTab() {
                 <div className="admin-card p-8 text-center text-gray-400 text-sm">No suppliers yet.</div>
             ) : (
                 <div className="space-y-2">
-                    {(suppliers ?? []).map((s: any) => (
-                        <div key={s.id} className="admin-card p-4">
-                            <p className="text-sm font-medium text-gray-900">{s.name}</p>
-                            <p className="text-xs text-gray-500">{[s.contact_person, s.phone, s.email].filter(Boolean).join(" · ") || "No contact details"}</p>
-                        </div>
-                    ))}
+                    {(suppliers ?? []).map((s: any) => {
+                        const isOpen = expanded === s.id;
+                        return (
+                            <div key={s.id} className="admin-card overflow-hidden">
+                                <button
+                                    onClick={() => setExpanded(isOpen ? null : s.id)}
+                                    className="w-full text-left p-4 flex items-center justify-between gap-2"
+                                >
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-900">{s.name}</p>
+                                        <p className="text-xs text-gray-500">{[s.contact_person, s.phone, s.email].filter(Boolean).join(" · ") || "No contact details"}</p>
+                                    </div>
+                                    {isOpen ? <ChevronUp size={16} className="text-gray-400 flex-shrink-0" /> : <ChevronDown size={16} className="text-gray-400 flex-shrink-0" />}
+                                </button>
+                                {isOpen && <SupplierTaggedParts supplierId={s.id} branchList={branchList} />}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>

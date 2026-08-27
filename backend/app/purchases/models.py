@@ -58,6 +58,10 @@ class Purchase(Base):
     items = relationship(
         "PurchaseItem", back_populates="purchase", cascade="all, delete-orphan")
 
+    @property
+    def supplier_name(self):
+        return self.supplier.name if self.supplier else None
+
 
 class PurchaseItem(Base):
     __tablename__ = "purchase_items"
@@ -73,6 +77,18 @@ class PurchaseItem(Base):
 
     purchase = relationship("Purchase", back_populates="items")
     product = relationship("Product")
+
+    @property
+    def product_name(self):
+        return self.product.name if self.product else None
+
+    @property
+    def product_sku(self):
+        return self.product.sku if self.product else None
+
+    @property
+    def product_part_number(self):
+        return self.product.part_number if self.product else None
 
 
 class ExpenseCategory(str, enum.Enum):

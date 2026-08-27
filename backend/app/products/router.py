@@ -15,7 +15,10 @@ from app.core.deps import (
     require_catalog_manager, require_manager_or_director, require_staff,
 )
 from app.core.exceptions import NotFoundError, ConflictError, ValidationError
-from app.products.models import Product, ProductStatus, Category, Brand, InventoryItem, StockStatus, StockMovement, StockMovementReason
+from app.products.models import (
+    Product, ProductStatus, Category, Brand, InventoryItem, StockStatus,
+    StockMovement, StockMovementReason, ProductSupplier,
+)
 from app.products.schemas import (
     ProductOut, ProductListItem, ProductCreate, ProductUpdate,
     CategoryOut, CategoryCreate, CategoryUpdate,
@@ -168,7 +171,8 @@ async def list_products(
     is_manager = current_user is not None and current_user.role in STAFF_ROLES
 
     query = select(Product).options(
-        selectinload(Product.category), selectinload(Product.brand)
+        selectinload(Product.category), selectinload(Product.brand),
+        selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
     )
 
     if is_manager:
@@ -242,6 +246,7 @@ async def get_product(slug_or_id: str, db: AsyncSession = Depends(get_db)):
         .options(
             selectinload(Product.category).selectinload(Category.children),
             selectinload(Product.brand),
+            selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
         )
     )
     product = result.scalar_one_or_none()
@@ -260,7 +265,7 @@ async def create_product(
     if existing.scalar_one_or_none():
         raise ConflictError(f"SKU '{body.sku}' already exists")
 
-    data = body.model_dump(exclude={"status"})
+    data = body.model_dump(exclude={"status", "suppliers"})
     product = Product(id=str(uuid.uuid4()), **data)
     if body.status:
         try:
@@ -269,6 +274,11 @@ async def create_product(
             raise ValidationError(f"Invalid status: '{body.status}'")
 
     db.add(product)
+    for row in body.suppliers:
+        db.add(ProductSupplier(
+            id=str(uuid.uuid4()), product_id=product.id,
+            supplier_id=row.supplier_id, price_usd=row.price_usd,
+        ))
     await db.commit()
 
     result = await db.execute(
@@ -277,6 +287,7 @@ async def create_product(
         .options(
             selectinload(Product.category).selectinload(Category.children),
             selectinload(Product.brand),
+            selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
         )
     )
     return result.scalar_one()
@@ -295,6 +306,7 @@ async def update_product(
 
     update_data = body.model_dump(exclude_none=True)
     status_value = update_data.pop("status", None)
+    suppliers_value = update_data.pop("suppliers", None)
 
     for field, value in update_data.items():
         setattr(product, field, value)
@@ -305,6 +317,20 @@ async def update_product(
         except ValueError:
             raise ValidationError(f"Invalid status: '{status_value}'")
 
+    # suppliers is Optional[List[...]] on ProductUpdate — None means "not
+    # touched" (edit form didn't send it), an empty list means "clear them
+    # all". Either way, full replace rather than a merge: simplest to keep
+    # correct, and the edit form always sends its complete current set.
+    if suppliers_value is not None:
+        await db.execute(
+            ProductSupplier.__table__.delete().where(ProductSupplier.product_id == product_id)
+        )
+        for row in suppliers_value:
+            db.add(ProductSupplier(
+                id=str(uuid.uuid4()), product_id=product_id,
+                supplier_id=row["supplier_id"], price_usd=row.get("price_usd"),
+            ))
+
     await db.commit()
 
     result = await db.execute(
@@ -313,6 +339,7 @@ async def update_product(
         .options(
             selectinload(Product.category).selectinload(Category.children),
             selectinload(Product.brand),
+            selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
         )
     )
     return result.scalar_one()

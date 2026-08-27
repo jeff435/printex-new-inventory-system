@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, productsApi, uploadsApi } from "@/lib/api";
+import { api, productsApi, uploadsApi, suppliersApi } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { ArrowLeft, Upload, X, Loader2 } from "lucide-react";
@@ -51,10 +51,14 @@ function ProductFormContent() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
     const [form, setForm] = useState(emptyForm);
+    // Supplier tags for this product — each row is { supplier_id, price_usd }.
+    // Separate from `form` since it's a list, not a flat field.
+    const [productSuppliers, setProductSuppliers] = useState<{ supplier_id: string; price_usd: string }[]>([]);
     const [slugTouched, setSlugTouched] = useState(false);
 
     const { data: categoriesData } = useQuery({ queryKey: ["categories"], queryFn: () => api.get("/categories").then((r) => r.data) });
     const { data: brandsData } = useQuery({ queryKey: ["brands"], queryFn: () => api.get("/brands").then((r) => r.data) });
+    const { data: suppliersData } = useQuery({ queryKey: ["suppliers-all"], queryFn: () => suppliersApi.list().then((r) => r.data) });
 
     const { data: existingProduct, isLoading: loadingProduct } = useQuery({
         queryKey: ["admin-product", editId],
@@ -81,6 +85,12 @@ function ProductFormContent() {
             thumbnail_url: existingProduct.thumbnail_url ?? "",
             status: (existingProduct.status ?? "active").toUpperCase(),
         });
+        setProductSuppliers(
+            (existingProduct.suppliers ?? []).map((s: any) => ({
+                supplier_id: s.supplier_id,
+                price_usd: s.price_usd != null ? (s.price_usd / 100).toString() : "",
+            }))
+        );
         setSlugTouched(true); // don't clobber the loaded slug from the name auto-slugify effect
     }, [existingProduct]);
 
@@ -142,6 +152,13 @@ function ProductFormContent() {
     const handleSubmit = () => {
         if (!form.name || !form.sku || !form.price_kes) { toast.error("Name, SKU and price are required"); return; }
 
+        const suppliersPayload = productSuppliers
+            .filter((s) => s.supplier_id)
+            .map((s) => ({
+                supplier_id: s.supplier_id,
+                price_usd: s.price_usd ? Math.round(parseFloat(s.price_usd) * 100) : null,
+            }));
+
         if (isEditing) {
             // SKU and slug are immutable once created, so they're excluded here
             updateMutation.mutate({
@@ -157,6 +174,7 @@ function ProductFormContent() {
                 unit_value: form.unit_value ? parseFloat(form.unit_value) : null,
                 thumbnail_url: form.thumbnail_url || "",
                 status: form.status,
+                suppliers: suppliersPayload,
             });
         } else {
             createMutation.mutate({
@@ -171,6 +189,7 @@ function ProductFormContent() {
                 unit_value: form.unit_value ? parseFloat(form.unit_value) : null,
                 thumbnail_url: form.thumbnail_url || null,
                 status: form.status,
+                suppliers: suppliersPayload,
             });
         }
     };
@@ -226,6 +245,48 @@ function ProductFormContent() {
                     </p>
                 </div>
                 <p className="text-xs text-gray-400">Enter prices in KES (e.g. 65 for KES 65.00).</p>
+
+                <h2 className="font-semibold text-gray-800 pt-2">Suppliers</h2>
+                <p className="text-xs text-gray-400 -mt-3">
+                    Tag who can supply this part, and their price in USD (optional) — independent of whether you've ever actually bought it from them yet.
+                </p>
+                <div className="space-y-2">
+                    {productSuppliers.map((row, idx) => (
+                        <div key={idx} className="flex gap-2">
+                            <select
+                                value={row.supplier_id}
+                                onChange={(e) => setProductSuppliers((prev) => prev.map((r, i) => i === idx ? { ...r, supplier_id: e.target.value } : r))}
+                                className={`${inp} flex-1`}
+                            >
+                                <option value="">Select supplier {idx + 1}</option>
+                                {(suppliersData ?? []).map((s: any) => (
+                                    <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                            </select>
+                            <div className="relative w-32">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400">USD</span>
+                                <input
+                                    type="number" step="0.01" placeholder="Price"
+                                    value={row.price_usd}
+                                    onChange={(e) => setProductSuppliers((prev) => prev.map((r, i) => i === idx ? { ...r, price_usd: e.target.value } : r))}
+                                    className={`${inp} pl-11`}
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setProductSuppliers((prev) => prev.filter((_, i) => i !== idx))}
+                                className="p-2 text-gray-400 hover:text-red-500"
+                            ><X size={15} /></button>
+                        </div>
+                    ))}
+                    {productSuppliers.length < 3 && (
+                        <button
+                            type="button"
+                            onClick={() => setProductSuppliers((prev) => [...prev, { supplier_id: "", price_usd: "" }])}
+                            className="text-xs text-blue-600 hover:underline"
+                        >+ Add supplier {productSuppliers.length + 1}</button>
+                    )}
+                </div>
             </div>
 
             <div className="glass-card p-6 space-y-4">

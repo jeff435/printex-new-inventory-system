@@ -268,6 +268,8 @@ export const suppliersApi = {
   create: (data: unknown) => api.post("/suppliers", data),
   update: (id: string, data: unknown) => api.patch(`/suppliers/${id}`, data),
   taggedParts: (id: string) => api.get(`/suppliers/${id}/tagged-parts`),
+  taggedPartsPdfBlob: (id: string) => api.get(`/suppliers/${id}/tagged-parts/pdf`, { responseType: "blob" }),
+  taggedPartsExcelBlob: (id: string) => api.get(`/suppliers/${id}/tagged-parts/export/excel`, { responseType: "blob" }),
 };
 
 export const expensesApi = {

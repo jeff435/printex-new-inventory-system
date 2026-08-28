@@ -267,9 +267,14 @@ export const suppliersApi = {
   list: (params?: Record<string, unknown>) => api.get("/suppliers", { params }),
   create: (data: unknown) => api.post("/suppliers", data),
   update: (id: string, data: unknown) => api.patch(`/suppliers/${id}`, data),
+  remove: (id: string) => api.delete(`/suppliers/${id}`),
   taggedParts: (id: string) => api.get(`/suppliers/${id}/tagged-parts`),
   taggedPartsPdfBlob: (id: string) => api.get(`/suppliers/${id}/tagged-parts/pdf`, { responseType: "blob" }),
   taggedPartsExcelBlob: (id: string) => api.get(`/suppliers/${id}/tagged-parts/export/excel`, { responseType: "blob" }),
+  purchaseHistory: (id: string) => api.get(`/suppliers/${id}/purchase-history`),
+  purchaseHistoryPdfBlob: (id: string) => api.get(`/suppliers/${id}/purchase-history/pdf`, { responseType: "blob" }),
+  purchaseHistoryExcelBlob: (id: string) => api.get(`/suppliers/${id}/purchase-history/export/excel`, { responseType: "blob" }),
+  spendSummary: () => api.get("/suppliers/analytics/spend-summary"),
 };
 
 export const expensesApi = {

@@ -2,9 +2,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { purchasesApi, suppliersApi, expensesApi, productsApi, api } from "@/lib/api";
+import { useAuthStore } from "@/stores";
 import toast from "react-hot-toast";
-import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search, ChevronUp, ChevronDown, Printer, FileSpreadsheet, Download, Loader2, Pencil } from "lucide-react";
+import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search, ChevronUp, ChevronDown, Printer, FileSpreadsheet, Download, Loader2, Pencil, Trash2, TrendingUp } from "lucide-react";
 import Link from "next/link";
+import {
+    ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+} from "recharts";
 
 const inp = "w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 placeholder:text-gray-400";
 
@@ -580,11 +584,178 @@ function SupplierTaggedParts({ supplierId, supplierName, branchList }: { supplie
     );
 }
 
+// ── Purchase history for one supplier — the parts actually bought from
+// them (RECEIVED purchase orders only), with Print / Excel / PDF buttons.
+// Sits alongside SupplierTaggedParts (which shows what COULD be bought,
+// whether or not it ever was) inside each expanded supplier row.
+function SupplierPurchaseHistory({ supplierId, supplierName }: { supplierId: string; supplierName: string }) {
+    const [busy, setBusy] = useState<"" | "excel" | "pdf">("");
+
+    const { data: rows, isLoading } = useQuery({
+        queryKey: ["supplier-purchase-history", supplierId],
+        queryFn: () => suppliersApi.purchaseHistory(supplierId).then((r) => r.data),
+    });
+
+    const handlePrint = () => window.print();
+
+    const handleExportExcel = async () => {
+        setBusy("excel");
+        try {
+            const res = await suppliersApi.purchaseHistoryExcelBlob(supplierId);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url; a.download = `${supplierName.replace(/\s+/g, "_")}_purchase_history.xlsx`;
+            a.click(); window.URL.revokeObjectURL(url);
+        } catch {
+            toast.error("Failed to export Excel");
+        } finally {
+            setBusy("");
+        }
+    };
+
+    const handleDownloadPdf = async () => {
+        setBusy("pdf");
+        try {
+            const res = await suppliersApi.purchaseHistoryPdfBlob(supplierId);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url; a.download = `${supplierName.replace(/\s+/g, "_")}_purchase_history.pdf`;
+            a.click(); window.URL.revokeObjectURL(url);
+        } catch {
+            toast.error("Failed to download PDF");
+        } finally {
+            setBusy("");
+        }
+    };
+
+    const totalSpent = (rows ?? []).reduce((sum: number, r: any) => sum + (r.total_spent_kes || 0), 0);
+
+    return (
+        <div className="border-t border-gray-100 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-xs font-semibold text-gray-500">
+                    Purchase history — parts actually bought from this supplier (received orders only)
+                </p>
+                {(rows ?? []).length > 0 && (
+                    <div className="flex items-center gap-2 print:hidden">
+                        <button onClick={handlePrint} className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm">
+                            <Printer size={12} /> Print
+                        </button>
+                        <button onClick={handleExportExcel} disabled={busy === "excel"} className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm disabled:opacity-50">
+                            {busy === "excel" ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />} Excel
+                        </button>
+                        <button onClick={handleDownloadPdf} disabled={busy === "pdf"} className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm">
+                            {busy === "pdf" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} PDF
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {isLoading ? (
+                <p className="text-xs text-gray-400">Loading...</p>
+            ) : (rows ?? []).length === 0 ? (
+                <p className="text-xs text-gray-400">No purchases received from this supplier yet.</p>
+            ) : (
+                <>
+                    <div className="max-h-56 overflow-y-auto">
+                        <table className="w-full text-xs">
+                            <thead className="text-gray-400 sticky top-0 bg-white">
+                                <tr className="text-left">
+                                    <th className="pb-1.5 font-medium">Part No.</th>
+                                    <th className="pb-1.5 font-medium">Name</th>
+                                    <th className="pb-1.5 font-medium text-right">Qty Bought</th>
+                                    <th className="pb-1.5 font-medium text-right">Total Spent</th>
+                                    <th className="pb-1.5 font-medium text-right">Last Bought</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(rows ?? []).map((r: any) => (
+                                    <tr key={r.product_id} className="border-t border-gray-50">
+                                        <td className="py-1.5 font-mono text-blue-600">{r.part_number || "—"}</td>
+                                        <td className="py-1.5 text-gray-700 truncate max-w-[160px]">{r.name}</td>
+                                        <td className="py-1.5 text-right text-gray-700">{r.total_quantity}</td>
+                                        <td className="py-1.5 text-right font-semibold text-gray-800">{money(r.total_spent_kes / 100)}</td>
+                                        <td className="py-1.5 text-right text-gray-400">{r.last_purchased_at ? r.last_purchased_at.slice(0, 10) : "—"}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="flex justify-end pt-1 border-t border-gray-100">
+                        <p className="text-xs font-semibold text-gray-800">Total spent: {money(totalSpent / 100)}</p>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
+// ── "Which supplier do we buy the most from" — small analytics panel at
+// the top of the Suppliers tab. Bar chart + ranked table, same visual
+// language as Director Analytics' Top Moving Parts chart.
+function SupplierSpendChart() {
+    const { data: summary, isLoading } = useQuery({
+        queryKey: ["supplier-spend-summary"],
+        queryFn: () => suppliersApi.spendSummary().then((r) => r.data),
+    });
+
+    const rows = summary ?? [];
+    const chartData = rows.slice(0, 8).map((r: any) => ({
+        name: r.supplier_name.length > 14 ? r.supplier_name.slice(0, 14) + "…" : r.supplier_name,
+        spent: r.total_spent_kes / 100,
+    }));
+
+    if (isLoading) {
+        return <div className="admin-card p-4"><p className="text-xs text-gray-400">Loading supplier analytics...</p></div>;
+    }
+    if (rows.length === 0) {
+        return null; // Nothing bought yet from anyone — no analytics worth showing.
+    }
+
+    return (
+        <div className="admin-card p-4 space-y-3">
+            <div className="flex items-center gap-2">
+                <TrendingUp size={16} className="text-teal-600" />
+                <div>
+                    <p className="text-sm font-semibold text-gray-800">Where we buy the most from</p>
+                    <p className="text-xs text-gray-500">Total spent per supplier, received purchase orders only</p>
+                </div>
+            </div>
+            <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} angle={-25} textAnchor="end" interval={0} height={50} />
+                        <YAxis stroke="#94a3b8" fontSize={11} />
+                        <Tooltip
+                            formatter={(value: any) => [money(value), "Spent"]}
+                            contentStyle={{ background: "#1e1b4b", color: "#fff", borderRadius: "12px", border: "none", fontSize: "12px" }}
+                        />
+                        <Bar dataKey="spent" fill="#0d9488" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+            <div className="space-y-1 pt-1 border-t border-gray-100">
+                {rows.slice(0, 5).map((r: any, i: number) => (
+                    <div key={r.supplier_id} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-600">{i + 1}. {r.supplier_name} <span className="text-gray-400">· {r.total_orders} order{r.total_orders === 1 ? "" : "s"}</span></span>
+                        <span className="font-semibold text-gray-800">{money(r.total_spent_kes / 100)}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function SuppliersTab() {
+    const { user } = useAuthStore();
+    const isAdmin = user?.role === "super_admin";
     const queryClient = useQueryClient();
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState({ name: "", contact_person: "", phone: "", email: "" });
     const [expanded, setExpanded] = useState<string | null>(null);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editForm, setEditForm] = useState({ name: "", contact_person: "", phone: "", email: "" });
 
     const { data: suppliers, isLoading } = useQuery({
         queryKey: ["suppliers"],
@@ -607,8 +778,48 @@ function SuppliersTab() {
         onError: (err: any) => toast.error(err.response?.data?.message || "Failed to add supplier"),
     });
 
+    const updateMutation = useMutation({
+        mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) => suppliersApi.update(id, payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+            toast.success("Supplier updated");
+            setEditingId(null);
+        },
+        onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update supplier"),
+    });
+
+    // Delete is intentionally restricted server-side to super_admin, and the
+    // backend also refuses to delete a supplier with purchase order history
+    // — the toast below surfaces that message verbatim rather than a
+    // generic failure, since it explains exactly what to do instead
+    // (deactivate via Edit).
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => suppliersApi.remove(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+            toast.success("Supplier deleted");
+        },
+        onError: (err: any) => toast.error(err.response?.data?.detail || err.response?.data?.message || "Failed to delete supplier"),
+    });
+
+    const startEdit = (s: any) => {
+        setEditingId(s.id);
+        setEditForm({
+            name: s.name || "", contact_person: s.contact_person || "",
+            phone: s.phone || "", email: s.email || "",
+        });
+        setExpanded(s.id);
+    };
+
+    const handleDelete = (s: any) => {
+        if (!window.confirm(`Permanently delete "${s.name}"? This can't be undone. Suppliers with purchase history can't be deleted — deactivate them instead.`)) return;
+        deleteMutation.mutate(s.id);
+    };
+
     return (
         <div className="space-y-4">
+            <SupplierSpendChart />
+
             <div className="flex justify-end">
                 <button onClick={() => setShowForm(!showForm)} className="glass-btn text-sm">
                     {showForm ? <X size={15} /> : <Plus size={15} />}
@@ -639,19 +850,81 @@ function SuppliersTab() {
                 <div className="space-y-2">
                     {(suppliers ?? []).map((s: any) => {
                         const isOpen = expanded === s.id;
+                        const isEditing = editingId === s.id;
                         return (
                             <div key={s.id} className="admin-card overflow-hidden">
-                                <button
-                                    onClick={() => setExpanded(isOpen ? null : s.id)}
-                                    className="w-full text-left p-4 flex items-center justify-between gap-2"
-                                >
-                                    <div>
-                                        <p className="text-sm font-medium text-gray-900">{s.name}</p>
-                                        <p className="text-xs text-gray-500">{[s.contact_person, s.phone, s.email].filter(Boolean).join(" · ") || "No contact details"}</p>
+                                <div className="w-full p-4 flex items-center justify-between gap-2">
+                                    <button
+                                        onClick={() => setExpanded(isOpen ? null : s.id)}
+                                        className="flex-1 text-left min-w-0"
+                                    >
+                                        <p className="text-sm font-medium text-gray-900 truncate">
+                                            {s.name}
+                                            {!s.is_active && <span className="ml-2 text-[10px] font-semibold text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">Inactive</span>}
+                                        </p>
+                                        <p className="text-xs text-gray-500 truncate">{[s.contact_person, s.phone, s.email].filter(Boolean).join(" · ") || "No contact details"}</p>
+                                    </button>
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                        <button
+                                            onClick={() => (isEditing ? setEditingId(null) : startEdit(s))}
+                                            title="Edit supplier"
+                                            className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                                        >
+                                            <Pencil size={14} />
+                                        </button>
+                                        {isAdmin && (
+                                            <button
+                                                onClick={() => handleDelete(s)}
+                                                disabled={deleteMutation.isPending}
+                                                title="Delete supplier (admin only)"
+                                                className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        )}
+                                        <button onClick={() => setExpanded(isOpen ? null : s.id)} className="p-1.5 text-gray-400">
+                                            {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                        </button>
                                     </div>
-                                    {isOpen ? <ChevronUp size={16} className="text-gray-400 flex-shrink-0" /> : <ChevronDown size={16} className="text-gray-400 flex-shrink-0" />}
-                                </button>
-                                {isOpen && <SupplierTaggedParts supplierId={s.id} supplierName={s.name} branchList={branchList} />}
+                                </div>
+
+                                {isEditing && (
+                                    <div className="border-t border-gray-100 p-4 space-y-3 bg-gray-50">
+                                        <input placeholder="Supplier name *" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className={inp} />
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <input placeholder="Contact person" value={editForm.contact_person} onChange={(e) => setEditForm({ ...editForm, contact_person: e.target.value })} className={inp} />
+                                            <input placeholder="Phone" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className={inp} />
+                                            <input placeholder="Email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className={inp} />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    if (!editForm.name.trim()) { toast.error("Name is required"); return; }
+                                                    updateMutation.mutate({ id: s.id, payload: editForm });
+                                                }}
+                                                disabled={updateMutation.isPending}
+                                                className="glass-btn text-sm disabled:opacity-50"
+                                            >
+                                                {updateMutation.isPending ? "Saving..." : "Save Changes"}
+                                            </button>
+                                            <button
+                                                onClick={() => updateMutation.mutate({ id: s.id, payload: { is_active: !s.is_active } })}
+                                                className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm"
+                                            >
+                                                {s.is_active ? <XCircle size={13} /> : <CheckCircle size={13} />}
+                                                {s.is_active ? "Deactivate" : "Activate"}
+                                            </button>
+                                            <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancel</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {isOpen && (
+                                    <>
+                                        <SupplierTaggedParts supplierId={s.id} supplierName={s.name} branchList={branchList} />
+                                        <SupplierPurchaseHistory supplierId={s.id} supplierName={s.name} />
+                                    </>
+                                )}
                             </div>
                         );
                     })}

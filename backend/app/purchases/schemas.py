@@ -41,6 +41,30 @@ class SupplierTaggedPart(BaseModel):
     price_usd: Optional[int] = None
 
 
+class SupplierPurchaseHistoryRow(BaseModel):
+    """One part actually bought from this supplier — aggregated across every
+    RECEIVED purchase order, as opposed to SupplierTaggedPart above (which is
+    just 'could sell us', whether or not we ever bought it). This is what
+    answers 'which parts have we actually bought from supplier X'."""
+    product_id: str
+    name: str
+    sku: str
+    part_number: Optional[str] = None
+    total_quantity: int
+    total_spent_kes: int  # KES cents — matches Purchase.total_amount's currency
+    last_purchased_at: Optional[str] = None
+
+
+class SupplierSpendSummary(BaseModel):
+    """One supplier's totals, for the 'which supplier do we buy the most
+    from' ranking on the Suppliers page."""
+    supplier_id: str
+    supplier_name: str
+    total_orders: int
+    total_spent_kes: int
+    last_purchased_at: Optional[str] = None
+
+
 class PurchaseItemCreate(BaseModel):
     product_id: str
     quantity: int = Field(..., gt=0)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 import uuid
@@ -9,18 +9,22 @@ import shortuuid
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.core.deps import require_staff
+from app.core.deps import require_staff, require_admin
 from app.core.exceptions import NotFoundError, ValidationError
 from app.auth.models import User
 from app.purchases.models import Supplier, Purchase, PurchaseItem, PurchaseStatus, Expense
 from app.purchases.schemas import (
     SupplierCreate, SupplierUpdate, SupplierOut, SupplierTaggedPart,
+    SupplierPurchaseHistoryRow, SupplierSpendSummary,
     PurchaseCreate, PurchaseOut,
     ExpenseCreate, ExpenseOut,
 )
 from app.purchases.pdf import render_purchase_order_pdf
 from app.purchases.excel_export import render_purchase_order_excel
-from app.purchases.parts_list_export import render_supplier_parts_pdf, render_supplier_parts_excel
+from app.purchases.parts_list_export import (
+    render_supplier_parts_pdf, render_supplier_parts_excel,
+    render_supplier_history_pdf, render_supplier_history_excel,
+)
 from app.products.models import Product, InventoryItem, StockMovement, StockMovementReason, ProductSupplier
 
 router = APIRouter(prefix="/purchases", tags=["Purchases"])
@@ -71,6 +75,48 @@ async def update_supplier(
     await db.commit()
     await db.refresh(supplier)
     return supplier
+
+
+@suppliers_router.delete("/{supplier_id}", status_code=204)
+async def delete_supplier(
+    supplier_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Permanently remove a supplier. Restricted to the super admin —
+    directors and secretaries can edit a supplier's details (see
+    update_supplier above) but not erase one outright, matching how the
+    rest of this app splits 'edit' from 'delete' permissions.
+
+    A supplier with purchase order history is never hard-deleted: doing so
+    would either violate the purchases.supplier_id foreign key (a 500 the
+    admin can't make sense of) or, if we cascaded it, silently erase real
+    purchase/spend history. Deactivating (PATCH is_active=false) is the
+    correct action once a supplier has been bought from — this endpoint
+    only allows removing suppliers that were never actually used, e.g. one
+    added by mistake or a duplicate entry.
+
+    Tags on the Suppliers section of a product (product_suppliers) are NOT
+    purchase history — they cascade-delete automatically at the database
+    level (see migrations/009_product_suppliers.sql) since they're just
+    "this supplier could sell this part", not a record of money spent.
+    """
+    supplier = await db.get(Supplier, supplier_id)
+    if not supplier:
+        raise NotFoundError("Supplier")
+
+    has_purchases = await db.execute(
+        select(Purchase.id).where(Purchase.supplier_id == supplier_id).limit(1)
+    )
+    if has_purchases.scalar_one_or_none():
+        raise ValidationError(
+            f"Can't delete \"{supplier.name}\" — it has purchase order history. "
+            "Deactivate it instead (toggle it off) to keep that history intact "
+            "while hiding it from new purchase orders."
+        )
+
+    await db.delete(supplier)
+    await db.commit()
 
 
 @suppliers_router.get("/{supplier_id}/tagged-parts", response_model=List[SupplierTaggedPart])
@@ -152,6 +198,119 @@ async def export_supplier_tagged_parts_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}_tagged_parts.xlsx"'},
     )
+
+
+async def _get_supplier_purchase_history(supplier_id: str, db: AsyncSession):
+    """Aggregates every RECEIVED purchase order's line items for this
+    supplier into one row per part — total quantity ever bought, total KES
+    spent, and when it was last bought. DRAFT/CANCELLED orders are excluded
+    on purpose: stock was never actually received against them, so counting
+    them would overstate what we've really bought from this supplier."""
+    supplier = await db.get(Supplier, supplier_id)
+    if not supplier:
+        raise NotFoundError("Supplier")
+
+    result = await db.execute(
+        select(
+            Product.id, Product.name, Product.sku, Product.part_number,
+            func.sum(PurchaseItem.quantity), func.sum(PurchaseItem.subtotal),
+            func.max(Purchase.received_at),
+        )
+        .join(PurchaseItem, PurchaseItem.product_id == Product.id)
+        .join(Purchase, Purchase.id == PurchaseItem.purchase_id)
+        .where(Purchase.supplier_id == supplier_id, Purchase.status == PurchaseStatus.RECEIVED)
+        .group_by(Product.id, Product.name, Product.sku, Product.part_number)
+        .order_by(func.sum(PurchaseItem.subtotal).desc())
+    )
+    rows = [
+        SupplierPurchaseHistoryRow(
+            product_id=pid, name=name, sku=sku, part_number=part_number,
+            total_quantity=int(qty or 0),
+            total_spent_kes=int((spent or 0) * 100),  # Numeric -> KES cents
+            last_purchased_at=last.isoformat() if last else None,
+        )
+        for pid, name, sku, part_number, qty, spent, last in result.all()
+    ]
+    return supplier, rows
+
+
+@suppliers_router.get("/{supplier_id}/purchase-history", response_model=List[SupplierPurchaseHistoryRow])
+async def get_supplier_purchase_history(
+    supplier_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    """What's actually been bought from this supplier — as opposed to
+    tagged-parts above, which is only 'could sell us'. Sorted by total spend,
+    highest first, so the parts this supplier actually earns the most from
+    Printex show up right away."""
+    _, rows = await _get_supplier_purchase_history(supplier_id, db)
+    return rows
+
+
+@suppliers_router.get("/{supplier_id}/purchase-history/pdf")
+async def export_supplier_purchase_history_pdf(
+    supplier_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    supplier, rows = await _get_supplier_purchase_history(supplier_id, db)
+    pdf_bytes = render_supplier_history_pdf(supplier, rows)
+    safe_name = supplier.name.replace(" ", "_")
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{safe_name}_purchase_history.pdf"'},
+    )
+
+
+@suppliers_router.get("/{supplier_id}/purchase-history/export/excel")
+async def export_supplier_purchase_history_excel(
+    supplier_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    supplier, rows = await _get_supplier_purchase_history(supplier_id, db)
+    xlsx_bytes = render_supplier_history_excel(supplier, rows)
+    safe_name = supplier.name.replace(" ", "_")
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_purchase_history.xlsx"'},
+    )
+
+
+@suppliers_router.get("/analytics/spend-summary", response_model=List[SupplierSpendSummary])
+async def get_supplier_spend_summary(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    """Every supplier ranked by total KES spent on RECEIVED purchase
+    orders, highest first — answers 'which supplier do we buy the most
+    from'. Powers the small chart/table at the top of the Suppliers page.
+    Open to the same three roles as the rest of Suppliers (director,
+    secretary, super_admin) via require_staff.
+    """
+    result = await db.execute(
+        select(
+            Supplier.id, Supplier.name,
+            func.count(func.distinct(Purchase.id)),
+            func.coalesce(func.sum(Purchase.total_amount), 0),
+            func.max(Purchase.received_at),
+        )
+        .join(Purchase, Purchase.supplier_id == Supplier.id)
+        .where(Purchase.status == PurchaseStatus.RECEIVED)
+        .group_by(Supplier.id, Supplier.name)
+        .order_by(func.sum(Purchase.total_amount).desc())
+    )
+    return [
+        SupplierSpendSummary(
+            supplier_id=sid, supplier_name=name,
+            total_orders=int(count or 0),
+            total_spent_kes=int((spent or 0) * 100),
+            last_purchased_at=last.isoformat() if last else None,
+        )
+        for sid, name, count, spent, last in result.all()
+    ]
 
 
 # ── Purchases ────────────────────────────────────────────────────────────────

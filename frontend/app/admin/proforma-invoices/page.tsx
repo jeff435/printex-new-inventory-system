@@ -228,6 +228,114 @@ function AddPartModal({
     );
 }
 
+// ── Full-screen "Add Manually" window ───────────────────────────────────────
+// Before this, "Add Manually" just dropped a blank row into the line-items
+// list, mixed in among the search boxes — someone typing only a Part No.
+// there (a very natural thing to do first) got no feedback, and if they
+// hit Create without ever touching the actual name/description field, the
+// row was silently dropped and Create failed with "Add at least one line
+// item" — a genuinely confusing error, since a row was visibly sitting
+// there with a quantity and price on it.
+//
+// This mirrors AddPartModal above: a dedicated, guaranteed-visible
+// full-screen window with its own explicit Part Name and Part No. fields,
+// so entering a manual part is unambiguous and validated on the spot
+// instead of silently at save time.
+function AddManualPartModal({
+    open, onClose, onAdd,
+}: {
+    open: boolean;
+    onClose: () => void;
+    onAdd: (p: { name: string; part_number: string; quantity: string; unit_price_kes: string }) => void;
+}) {
+    const [name, setName] = useState("");
+    const [partNumber, setPartNumber] = useState("");
+    const [quantity, setQuantity] = useState("1");
+    const [unitPrice, setUnitPrice] = useState("");
+
+    useEffect(() => {
+        if (open) { setName(""); setPartNumber(""); setQuantity("1"); setUnitPrice(""); }
+    }, [open]);
+
+    if (!open) return null;
+
+    const canAdd = name.trim().length > 0 || partNumber.trim().length > 0;
+
+    const handleAdd = () => {
+        if (!canAdd) {
+            toast.error("Enter a part name or a part number first");
+            return;
+        }
+        onAdd({ name: name.trim(), part_number: partNumber.trim(), quantity, unit_price_kes: unitPrice });
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-[999] flex items-start sm:items-center justify-center bg-black/40 p-3 sm:p-6">
+            <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col mt-10 sm:mt-0">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                    <h3 className="font-semibold text-gray-900">Add a part manually</h3>
+                    <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100">
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="p-5 space-y-4">
+                    <p className="text-xs text-gray-400 -mt-1">
+                        For a part that isn't in the catalogue yet. Fill in a name, a part number, or both.
+                    </p>
+                    <div>
+                        <label className="text-xs font-medium text-gray-500 mb-1 block">Part name</label>
+                        {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+                        <input
+                            autoFocus
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="e.g. Toner cartridge 305A"
+                            className="w-full px-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-medium text-gray-500 mb-1 block">Part number</label>
+                        <input
+                            value={partNumber}
+                            onChange={(e) => setPartNumber(e.target.value)}
+                            placeholder="e.g. CE305A"
+                            className="w-full px-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1 block">Quantity</label>
+                            <input
+                                type="number" min="1" step="1"
+                                value={quantity}
+                                onChange={(e) => setQuantity(e.target.value)}
+                                className="w-full px-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-500 mb-1 block">Unit price (KSh)</label>
+                            <input
+                                type="number" min="0" step="0.01"
+                                value={unitPrice}
+                                onChange={(e) => setUnitPrice(e.target.value)}
+                                placeholder="0.00"
+                                className="w-full px-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            />
+                        </div>
+                    </div>
+                </div>
+                <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2">
+                    <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">Cancel</button>
+                    <button onClick={handleAdd} disabled={!canAdd} className="glass-btn text-sm px-4 py-2 disabled:opacity-40">
+                        Add to invoice
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ── Main page ───────────────────────────────────────────────────────────────
 
 export default function ProformaInvoicesPage() {
@@ -240,6 +348,7 @@ export default function ProformaInvoicesPage() {
     const [statusFilter, setStatusFilter] = useState("all");
     const [busyExportId, setBusyExportId] = useState<string | null>(null);
     const [addPartModalOpen, setAddPartModalOpen] = useState(false);
+    const [addManualModalOpen, setAddManualModalOpen] = useState(false);
 
     const [form, setForm] = useState({
         customer_name: "", customer_phone: "", customer_email: "", customer_address: "",
@@ -349,6 +458,28 @@ export default function ProformaInvoicesPage() {
                 description: p.name,
                 quantity: "1",
                 unit_price_kes: kshInput(p.price_kes),
+            };
+            if (emptyIdx !== -1) {
+                return prev.map((it, i) => (i === emptyIdx ? newItem : it));
+            }
+            return [...prev, newItem];
+        });
+    };
+
+    // Adds a manually-typed part (from AddManualPartModal) as its own new
+    // line — same "drop into the first empty row, else append" behavior as
+    // handleAddPartFromModal above, so the two entry points never fight
+    // over the same row.
+    const handleAddManualPart = (p: { name: string; part_number: string; quantity: string; unit_price_kes: string }) => {
+        setShowForm(true);
+        setItems((prev) => {
+            const emptyIdx = prev.findIndex((it) => !it.description.trim() && !it.product_id && !(it.part_number || "").trim());
+            const newItem: Item = {
+                product_id: null,
+                part_number: p.part_number || null,
+                description: p.name || p.part_number,
+                quantity: p.quantity || "1",
+                unit_price_kes: p.unit_price_kes,
             };
             if (emptyIdx !== -1) {
                 return prev.map((it, i) => (i === emptyIdx ? newItem : it));
@@ -611,7 +742,7 @@ export default function ProformaInvoicesPage() {
                                 Add from Inventory
                             </button>
                             <button
-                                onClick={addItem}
+                                onClick={() => setAddManualModalOpen(true)}
                                 className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm"
                             >
                                 <Plus size={12} />
@@ -619,7 +750,7 @@ export default function ProformaInvoicesPage() {
                             </button>
                         </div>
                         <p className="text-xs text-gray-400">
-                            "Add from Inventory" pulls a part's price and stock from the catalogue. "Add Manually" lets you type any description and set its price yourself — for anything not in the system. VAT (16%) is applied the same way either way.
+                            "Add from Inventory" pulls a part's price and stock from the catalogue. "Add Manually" opens a window where you type a part name and/or part number and set the price yourself — for anything not in the system. VAT (16%) is applied the same way either way.
                         </p>
                     </div>
 
@@ -776,6 +907,11 @@ export default function ProformaInvoicesPage() {
                 open={addPartModalOpen}
                 onClose={() => setAddPartModalOpen(false)}
                 onAdd={handleAddPartFromModal}
+            />
+            <AddManualPartModal
+                open={addManualModalOpen}
+                onClose={() => setAddManualModalOpen(false)}
+                onAdd={handleAddManualPart}
             />
         </div>
     );

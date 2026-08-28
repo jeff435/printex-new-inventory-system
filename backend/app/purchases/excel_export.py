@@ -64,3 +64,35 @@ def render_purchase_order_excel(purchase) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def render_supplier_parts_excel(supplier_name: str, parts) -> bytes:
+    """parts: list of app.purchases.schemas.SupplierTaggedPart."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Supplier Parts"
+
+    ws["A1"] = f"PARTS SUPPLIED BY {supplier_name.upper()}"
+    ws["A1"].font = Font(bold=True, size=14, color=NAVY)
+
+    headers = ["Part No.", "Name", "SKU", "Price (USD)"]
+    for i, h in enumerate(headers, start=1):
+        c = ws.cell(row=3, column=i, value=h)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor=NAVY)
+
+    r = 4
+    for p in parts:
+        ws.cell(row=r, column=1, value=p.part_number or "—")
+        ws.cell(row=r, column=2, value=p.name)
+        ws.cell(row=r, column=3, value=p.sku)
+        ws.cell(row=r, column=4, value=(p.price_usd / 100) if p.price_usd is not None else None)
+        r += 1
+
+    widths = [18, 42, 16, 14]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

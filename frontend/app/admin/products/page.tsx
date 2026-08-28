@@ -31,7 +31,7 @@ export default function AdminProductsPage() {
     const [statusFilter, setStatusFilter] = useState("all");
     const [page, setPage] = useState(1);
 
-    const { data, isLoading, isError, error } = useQuery({
+    const { data, isLoading } = useQuery({
         queryKey: ["admin-products", search, statusFilter, page],
         queryFn: () =>
             api.get("/products", {
@@ -103,14 +103,6 @@ export default function AdminProductsPage() {
                     {[1, 2, 3, 4, 5].map((i) => (
                         <div key={i} className="h-16 bg-gray-100 animate-pulse rounded-2xl" />
                     ))}
-                </div>
-            ) : isError ? (
-                <div className="admin-card p-16 text-center">
-                    <Package size={32} className="mx-auto text-red-300 mb-3" />
-                    <p className="text-sm text-red-500 font-medium">Couldn't load products</p>
-                    <p className="text-xs text-gray-400 mt-1">
-                        {(error as any)?.response?.data?.detail || (error as any)?.response?.data?.message || (error as any)?.message || "Unknown error — check the backend logs."}
-                    </p>
                 </div>
             ) : products.length === 0 ? (
                 <div className="admin-card p-16 text-center">

@@ -18,9 +18,8 @@ from app.purchases.schemas import (
     PurchaseCreate, PurchaseOut,
     ExpenseCreate, ExpenseOut,
 )
-from app.purchases.pdf import render_purchase_order_pdf
-from app.purchases.excel_export import render_purchase_order_excel
-from app.purchases.parts_list_export import render_supplier_parts_pdf, render_supplier_parts_excel
+from app.purchases.pdf import render_purchase_order_pdf, render_supplier_parts_pdf
+from app.purchases.excel_export import render_purchase_order_excel, render_supplier_parts_excel
 from app.products.models import Product, InventoryItem, StockMovement, StockMovementReason, ProductSupplier
 
 router = APIRouter(prefix="/purchases", tags=["Purchases"])
@@ -101,40 +100,20 @@ async def get_supplier_tagged_parts(
     ]
 
 
-async def _get_supplier_and_tagged_parts(supplier_id: str, db: AsyncSession):
-    supplier = await db.get(Supplier, supplier_id)
-    if not supplier:
-        raise NotFoundError("Supplier")
-    result = await db.execute(
-        select(Product, ProductSupplier.price_usd)
-        .join(ProductSupplier, ProductSupplier.product_id == Product.id)
-        .where(ProductSupplier.supplier_id == supplier_id)
-        .order_by(Product.name)
-    )
-    parts = [
-        SupplierTaggedPart(
-            product_id=p.id, name=p.name, sku=p.sku,
-            part_number=p.part_number, price_usd=price_usd,
-        )
-        for p, price_usd in result.all()
-    ]
-    return supplier, parts
-
-
 @suppliers_router.get("/{supplier_id}/tagged-parts/pdf")
 async def export_supplier_tagged_parts_pdf(
     supplier_id: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_staff),
 ):
-    """Downloadable PDF of every part tagged to this supplier — the list
-    the Suppliers page shows, not tied to any single purchase order."""
-    supplier, parts = await _get_supplier_and_tagged_parts(supplier_id, db)
-    pdf_bytes = render_supplier_parts_pdf(supplier, parts)
-    safe_name = supplier.name.replace(" ", "_")
+    supplier = await db.get(Supplier, supplier_id)
+    if not supplier:
+        raise NotFoundError("Supplier")
+    parts = await get_supplier_tagged_parts(supplier_id=supplier_id, db=db, _=None)
+    pdf_bytes = render_supplier_parts_pdf(supplier.name, parts)
     return Response(
         content=pdf_bytes, media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{safe_name}_tagged_parts.pdf"'},
+        headers={"Content-Disposition": f'inline; filename="{supplier.name}-parts.pdf"'},
     )
 
 
@@ -144,13 +123,15 @@ async def export_supplier_tagged_parts_excel(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_staff),
 ):
-    supplier, parts = await _get_supplier_and_tagged_parts(supplier_id, db)
-    xlsx_bytes = render_supplier_parts_excel(supplier, parts)
-    safe_name = supplier.name.replace(" ", "_")
+    supplier = await db.get(Supplier, supplier_id)
+    if not supplier:
+        raise NotFoundError("Supplier")
+    parts = await get_supplier_tagged_parts(supplier_id=supplier_id, db=db, _=None)
+    xlsx_bytes = render_supplier_parts_excel(supplier.name, parts)
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}_tagged_parts.xlsx"'},
+        headers={"Content-Disposition": f'attachment; filename="{supplier.name}-parts.xlsx"'},
     )
 
 

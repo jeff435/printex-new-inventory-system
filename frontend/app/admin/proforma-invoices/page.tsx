@@ -371,11 +371,21 @@ export default function ProformaInvoicesPage() {
 
     const buildPayload = () => {
         const cleanItems = items
-            .filter((it) => it.description.trim())
+            // A manually-added row is "real" if EITHER field is filled — not
+            // just the name/search box. Filtering on description alone
+            // silently dropped a row where someone typed a Part No. first
+            // (the natural order for a manual part) but hadn't yet typed a
+            // name, so Save appeared to do nothing useful and then showed
+            // "Add at least one line item" even though a row had content.
+            .filter((it) => it.description.trim() || (it.part_number || "").trim())
             .map((it) => ({
                 product_id: it.product_id || null,
                 part_number: (it.part_number || "").trim() || null,
-                description: it.description.trim(),
+                // Fall back to the part number as the line's description
+                // when no name was typed — the backend's ProformaItemCreate
+                // requires a non-blank description, and the PDF/Excel export
+                // need something to print in the name column either way.
+                description: it.description.trim() || (it.part_number || "").trim(),
                 quantity: parseFloat(it.quantity) || 1,
                 unit_price_kes: Math.round((parseFloat(it.unit_price_kes) || 0) * 100),
             }));

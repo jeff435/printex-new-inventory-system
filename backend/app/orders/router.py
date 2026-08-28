@@ -216,7 +216,15 @@ async def get_order(
     if not order:
         raise NotFoundError("Order")
     if order.user_id != current_user.id and current_user.role.value not in (
-        "branch_manager", "inventory_manager", "super_admin"
+        # This mirrors require_manager_or_director / require_manager used by
+        # admin_order_queue and update_order_status just below — this was
+        # the one order endpoint left checking the old branch_manager /
+        # inventory_manager roles (which can no longer even log in — see
+        # STAFF_ROLES in app.core.deps) and never updated to include
+        # "director", so a director could see the whole order queue and
+        # update any order's status, but got a 403 opening one order's
+        # detail page directly.
+        "director", "super_admin",
     ):
         raise ForbiddenError()
     return order

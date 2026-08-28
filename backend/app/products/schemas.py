@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 
 
@@ -18,7 +18,7 @@ CategoryOut.model_rebuild()
 
 
 class CategoryCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1)
     slug: Optional[str] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
@@ -27,7 +27,7 @@ class CategoryCreate(BaseModel):
 
 
 class CategoryUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1)
     slug: Optional[str] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
@@ -45,7 +45,7 @@ class BrandOut(BaseModel):
 
 
 class BrandCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1)
     slug: Optional[str] = None
     logo_url: Optional[str] = None
 
@@ -54,7 +54,7 @@ class ProductSupplierIn(BaseModel):
     """One row of the product's Suppliers section — tag a supplier and
     (optionally) their price for this part, in USD cents."""
     supplier_id: str
-    price_usd: Optional[int] = None
+    price_usd: Optional[int] = Field(None, ge=0)
 
 
 class ProductSupplierOut(BaseModel):
@@ -119,30 +119,32 @@ class ProductListItem(BaseModel):
 
 
 class ProductCreate(BaseModel):
-    sku: str
+    sku: str = Field(..., min_length=1)
     part_number: Optional[str] = None
     register_column: Optional[str] = None
     register_note: Optional[str] = None
-    name: str
-    slug: str
+    name: str = Field(..., min_length=1)
+    slug: str = Field(..., min_length=1)
     description: Optional[str] = None
     short_description: Optional[str] = None
     category_id: Optional[str] = None
     brand_id: Optional[str] = None
-    price_kes: int
-    compare_price_kes: Optional[int] = None
+    # ge=0 rather than gt=0 — "needs pricing" parts are legitimately created
+    # at 0 (see needs_pricing on Product) before a price is known.
+    price_kes: int = Field(..., ge=0)
+    compare_price_kes: Optional[int] = Field(None, ge=0)
     # Purchase cost in USD cents. Deliberately a SEPARATE currency from
     # price_kes — Printex buys in USD and sells in KES, and there is no
     # exchange rate anywhere in this system on purpose (see Product model).
-    buying_price_usd: Optional[int] = None
-    weight_grams: Optional[int] = None
+    buying_price_usd: Optional[int] = Field(None, ge=0)
+    weight_grams: Optional[int] = Field(None, ge=0)
     unit: Optional[str] = None
-    unit_value: Optional[float] = None
+    unit_value: Optional[float] = Field(None, gt=0)
     images: List[str] = []
     thumbnail_url: Optional[str] = None
     tags: List[str] = []
     is_age_restricted: bool = False
-    min_age: Optional[int] = None
+    min_age: Optional[int] = Field(None, ge=0)
     is_online_exclusive: bool = False
     is_private_label: bool = False
     status: Optional[str] = None
@@ -150,7 +152,11 @@ class ProductCreate(BaseModel):
 
 
 class ProductUpdate(BaseModel):
-    name: Optional[str] = None
+    # min_length=1 here (despite the field being Optional) is deliberate:
+    # None means "field not sent, leave as-is" (see update_product's
+    # exclude_none), but an empty string IS sent and would otherwise wipe
+    # out the product's name/sku with blank text with no validation error.
+    name: Optional[str] = Field(None, min_length=1)
     part_number: Optional[str] = None
     register_column: Optional[str] = None
     register_note: Optional[str] = None
@@ -158,12 +164,12 @@ class ProductUpdate(BaseModel):
     short_description: Optional[str] = None
     category_id: Optional[str] = None
     brand_id: Optional[str] = None
-    price_kes: Optional[int] = None
-    compare_price_kes: Optional[int] = None
-    buying_price_usd: Optional[int] = None
-    weight_grams: Optional[int] = None
+    price_kes: Optional[int] = Field(None, ge=0)
+    compare_price_kes: Optional[int] = Field(None, ge=0)
+    buying_price_usd: Optional[int] = Field(None, ge=0)
+    weight_grams: Optional[int] = Field(None, ge=0)
     unit: Optional[str] = None
-    unit_value: Optional[float] = None
+    unit_value: Optional[float] = Field(None, gt=0)
     images: Optional[List[str]] = None
     thumbnail_url: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -196,7 +202,7 @@ class InventoryOut(BaseModel):
 
 
 class InventoryUpdate(BaseModel):
-    quantity_on_hand: Optional[int] = None
-    reorder_point: Optional[int] = None
-    reorder_quantity: Optional[int] = None
+    quantity_on_hand: Optional[int] = Field(None, ge=0)
+    reorder_point: Optional[int] = Field(None, ge=0)
+    reorder_quantity: Optional[int] = Field(None, ge=0)
     bin_location: Optional[str] = None

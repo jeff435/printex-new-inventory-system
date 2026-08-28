@@ -73,8 +73,15 @@ require_admin = require_role(UserRole.SUPER_ADMIN)
 require_manager = require_role(
     UserRole.SUPER_ADMIN, UserRole.DIRECTOR, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER)
 require_driver = require_role(UserRole.SUPER_ADMIN, UserRole.DRIVER)
+# DIRECTOR added for the same reason as require_manager above: the delivery
+# assignment endpoint (app.delivery.router.assign_delivery) already grants
+# a director access via require_manager, but the very next endpoint —
+# updating that same delivery's status — was gated on this dependency
+# without DIRECTOR, so a director could assign a delivery and then be
+# unable to move it past "assigned". Keeping both endpoints in the same
+# delivery flow consistent.
 require_manager_or_driver = require_role(
-    UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER, UserRole.DRIVER
+    UserRole.SUPER_ADMIN, UserRole.DIRECTOR, UserRole.BRANCH_MANAGER, UserRole.INVENTORY_MANAGER, UserRole.DRIVER
 )
 # A director oversees the whole business and needs to see the same order
 # queue a branch/inventory manager sees, just across every branch at once.

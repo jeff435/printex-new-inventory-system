@@ -48,3 +48,33 @@ async def app_exception_handler(request: Request, exc: AppException):
         status_code=exc.status_code,
         content={"success": False, "code": exc.code, "detail": exc.detail, "message": exc.detail},
     )
+
+
+async def request_validation_error_handler(request: Request, exc):
+    # FastAPI's own built-in validation (every Pydantic Field(ge=..., gt=...,
+    # min_length=...) constraint — e.g. the new "price can't be negative" /
+    # "quantity must be positive" / "name can't be blank" guards added across
+    # products, orders, purchases, proforma) raises this automatically and,
+    # left unhandled, its default 422 body puts `detail` as a LIST of
+    # {"loc": [...], "msg": ..., "type": ...} objects, not a string.
+    #
+    # Every frontend error handler in this app (toast.error(err.response?.data?.detail
+    # || err.response?.data?.message)) expects `detail` to be a plain string —
+    # that convention comes from app_exception_handler above. Without this
+    # handler, a garbage-in submission (negative price, blank name, empty
+    # order) would come back with `detail` as an array, and toast.error()
+    # would render it as "[object Object]" instead of a message a member of
+    # staff can actually act on. This normalizes FastAPI's validation errors
+    # into that same {detail: str, message: str} shape, joining every field
+    # error into one readable line.
+    errors = exc.errors()
+    parts = []
+    for err in errors:
+        loc = [str(p) for p in err.get("loc", []) if p not in ("body", "query", "path")]
+        field = ".".join(loc) if loc else "value"
+        parts.append(f"{field}: {err.get('msg', 'invalid value')}")
+    detail = "; ".join(parts) or "Invalid request"
+    return JSONResponse(
+        status_code=422,
+        content={"success": False, "code": "VALIDATION_ERROR", "detail": detail, "message": detail},
+    )

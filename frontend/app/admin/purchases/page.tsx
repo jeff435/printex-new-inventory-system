@@ -1,10 +1,10 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { purchasesApi, suppliersApi, expensesApi, productsApi, api } from "@/lib/api";
 import toast from "react-hot-toast";
-import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search, ChevronUp, ChevronDown, Printer, FileSpreadsheet, Download, Loader2 } from "lucide-react";
+import { Plus, X, Truck, Receipt, Building2, CheckCircle, XCircle, Search, ChevronUp, ChevronDown, Printer, FileSpreadsheet, Download, Loader2, Pencil } from "lucide-react";
+import Link from "next/link";
 
 const inp = "w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 placeholder:text-gray-400";
 
@@ -415,6 +415,40 @@ function SupplierTaggedParts({ supplierId, supplierName, branchList }: { supplie
         queryFn: () => suppliersApi.taggedParts(supplierId).then((r) => r.data),
     });
 
+    // Downloads/prints the tagged-parts list itself — every part ever tagged
+    // to this supplier — independent of creating a purchase order below.
+    const handleListPrint = () => window.print();
+
+    const handleListExportExcel = async () => {
+        setBusy("list-excel");
+        try {
+            const res = await suppliersApi.taggedPartsExcelBlob(supplierId);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url; a.download = `${supplierName.replace(/\s+/g, "_")}_tagged_parts.xlsx`;
+            a.click(); window.URL.revokeObjectURL(url);
+        } catch {
+            toast.error("Failed to export Excel");
+        } finally {
+            setBusy("");
+        }
+    };
+
+    const handleListDownloadPdf = async () => {
+        setBusy("list-pdf");
+        try {
+            const res = await suppliersApi.taggedPartsPdfBlob(supplierId);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url; a.download = `${supplierName.replace(/\s+/g, "_")}_tagged_parts.pdf`;
+            a.click(); window.URL.revokeObjectURL(url);
+        } catch {
+            toast.error("Failed to download PDF");
+        } finally {
+            setBusy("");
+        }
+    };
+
     const createPO = useMutation({
         mutationFn: (payload: Record<string, unknown>) => purchasesApi.create(payload),
         onSuccess: (res) => {
@@ -440,36 +474,6 @@ function SupplierTaggedParts({ supplierId, supplierName, branchList }: { supplie
     };
 
     const handlePrint = () => window.print();
-
-    const handleListExportExcel = async () => {
-        setBusy("list-excel");
-        try {
-            const res = await suppliersApi.taggedPartsExcelBlob(supplierId);
-            const url = window.URL.createObjectURL(new Blob([res.data]));
-            const a = document.createElement("a");
-            a.href = url; a.download = `${supplierName}-parts.xlsx`;
-            a.click(); window.URL.revokeObjectURL(url);
-        } catch {
-            toast.error("Failed to export Excel");
-        } finally {
-            setBusy("");
-        }
-    };
-
-    const handleListDownloadPdf = async () => {
-        setBusy("list-pdf");
-        try {
-            const res = await suppliersApi.taggedPartsPdfBlob(supplierId);
-            const url = window.URL.createObjectURL(new Blob([res.data]));
-            const a = document.createElement("a");
-            a.href = url; a.download = `${supplierName}-parts.pdf`;
-            a.click(); window.URL.revokeObjectURL(url);
-        } catch {
-            toast.error("Failed to download PDF");
-        } finally {
-            setBusy("");
-        }
-    };
 
     const handleExportExcel = async () => {
         if (!createdPurchase) return;
@@ -511,9 +515,11 @@ function SupplierTaggedParts({ supplierId, supplierName, branchList }: { supplie
     return (
         <div className="px-4 pb-4 space-y-2 border-t border-gray-100 pt-3 mt-1">
             <div className="flex items-center justify-between flex-wrap gap-2">
-                <p className="text-xs text-gray-500">Every part ever tagged with this supplier — tick some to build a new order, or export the whole list below.</p>
+                <p className="text-xs text-gray-500">
+                    Every part ever tagged to this supplier ({parts.length}). Click a part to open it in the catalogue.
+                </p>
                 <div className="flex items-center gap-2 flex-wrap print:hidden">
-                    <button onClick={handlePrint} className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm">
+                    <button onClick={handleListPrint} className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm">
                         <Printer size={12} /> Print
                     </button>
                     <button onClick={handleListExportExcel} disabled={busy === "list-excel"} className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm disabled:opacity-50">
@@ -526,32 +532,28 @@ function SupplierTaggedParts({ supplierId, supplierName, branchList }: { supplie
             </div>
             <div className="max-h-52 overflow-y-auto space-y-1">
                 {parts.map((p: any) => (
-                    <div key={p.product_id} className="flex items-center gap-2 text-xs py-1">
-                        <input
-                            type="checkbox"
-                            checked={!!checked[p.product_id]}
-                            onChange={(e) => setChecked((prev) => ({ ...prev, [p.product_id]: e.target.checked }))}
-                        />
+                    <div key={p.product_id} className="flex items-center justify-between gap-2 text-xs py-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <input
+                                type="checkbox"
+                                checked={!!checked[p.product_id]}
+                                onChange={(e) => setChecked((prev) => ({ ...prev, [p.product_id]: e.target.checked }))}
+                            />
+                            <span className="font-mono text-blue-600 flex-shrink-0">{p.part_number || "—"}</span>
+                            <span className="text-gray-700 truncate">{p.name}</span>
+                            {p.price_usd != null && <span className="text-gray-400 flex-shrink-0">· ${(p.price_usd / 100).toLocaleString()}</span>}
+                        </div>
                         <Link
                             href={`/admin/products/new?edit=${p.product_id}`}
-                            target="_blank"
-                            className="font-mono text-blue-600 hover:underline"
-                            title="Open this part in Products"
+                            className="flex items-center gap-1 text-blue-600 hover:underline flex-shrink-0"
+                            title="Edit this part"
                         >
-                            {p.part_number || "—"}
+                            <Pencil size={11} /> Edit
                         </Link>
-                        <Link
-                            href={`/admin/products/new?edit=${p.product_id}`}
-                            target="_blank"
-                            className="text-gray-700 hover:underline"
-                            title="Open this part in Products"
-                        >
-                            {p.name}
-                        </Link>
-                        {p.price_usd != null && <span className="text-gray-400">· ${(p.price_usd / 100).toLocaleString()}</span>}
                     </div>
                 ))}
             </div>
+            <p className="text-xs text-gray-500 pt-1">Tick parts below to create a draft purchase order for this supplier.</p>
             <button onClick={handleCreatePO} disabled={createPO.isPending} className="glass-btn text-xs disabled:opacity-50">
                 {createPO.isPending ? "Creating…" : `Create Purchase Order (${checkedIds.length} selected)`}
             </button>

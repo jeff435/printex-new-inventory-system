@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import create_tables, apply_sql_migrations
 from app.core.redis import get_redis, redis_close
-from app.core.exceptions import AppException, app_exception_handler
+from app.core.exceptions import AppException, app_exception_handler, request_validation_error_handler
 # Routers
 from app.auth.router import router as auth_router
 from app.products.router import router as products_router
@@ -98,6 +98,13 @@ app.add_middleware(
 
 # ── Exception handlers ────────────────────────────────────────────────────────
 app.add_exception_handler(AppException, app_exception_handler)
+# Normalizes FastAPI/Pydantic's own built-in validation errors (every
+# Field(ge=, gt=, min_length=...) constraint across the app) into the same
+# {detail: str, message: str} shape as AppException above — see the handler's
+# own docstring for why this matters for every toast.error(...) call in the
+# frontend.
+from fastapi.exceptions import RequestValidationError
+app.add_exception_handler(RequestValidationError, request_validation_error_handler)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 API_PREFIX = "/api/v1"

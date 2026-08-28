@@ -1,11 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
 
 
 class SupplierCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1)
     contact_person: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
@@ -14,7 +14,7 @@ class SupplierCreate(BaseModel):
 
 
 class SupplierUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1)
     contact_person: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
@@ -43,8 +43,8 @@ class SupplierTaggedPart(BaseModel):
 
 class PurchaseItemCreate(BaseModel):
     product_id: str
-    quantity: int
-    unit_cost: Decimal
+    quantity: int = Field(..., gt=0)
+    unit_cost: Decimal = Field(..., ge=0)
 
 
 class PurchaseItemOut(BaseModel):
@@ -63,7 +63,7 @@ class PurchaseCreate(BaseModel):
     supplier_id: str
     branch_id: str
     notes: Optional[str] = None
-    items: List[PurchaseItemCreate]
+    items: List[PurchaseItemCreate] = Field(..., min_length=1)
 
 
 class PurchaseOut(BaseModel):
@@ -84,8 +84,8 @@ class PurchaseOut(BaseModel):
 class ExpenseCreate(BaseModel):
     branch_id: Optional[str] = None
     category: str = "other"
-    description: str
-    amount: Decimal
+    description: str = Field(..., min_length=1)
+    amount: Decimal = Field(..., gt=0)
     incurred_at: Optional[datetime] = None
 
 

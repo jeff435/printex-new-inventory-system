@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import ProgrammingError, OperationalError
 from typing import Optional, List
 import uuid
 from datetime import datetime, timezone
@@ -26,6 +27,48 @@ from app.products.schemas import (
 )
 from app.auth.models import User, UserRole
 from app.core.deps import STAFF_ROLES
+
+async def _fetch_product_with_suppliers(db: AsyncSession, product_id: str):
+    """Re-fetch a single product with its suppliers eager-loaded, degrading
+    gracefully to suppliers=[] if the product_suppliers migration
+    (009_product_suppliers.sql) hasn't been run against this database yet —
+    same reasoning as the list_products fallback above. Used by every
+    endpoint (get/create/update) that returns a full ProductOut, so none of
+    them 500 on a missing migration. Returns a plain dict, safe to hand to
+    ProductOut.model_validate — never the raw ORM object, since touching an
+    un-loaded product.suppliers on that object later would still trigger a
+    lazy-load crash (MissingGreenlet) outside this function's await context.
+    """
+    try:
+        result = await db.execute(
+            select(Product)
+            .where(Product.id == product_id)
+            .options(
+                selectinload(Product.category).selectinload(Category.children),
+                selectinload(Product.brand),
+                selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
+            )
+        )
+        product = result.scalar_one()
+        return product
+    except (ProgrammingError, OperationalError):
+        await db.rollback()
+        result = await db.execute(
+            select(Product)
+            .where(Product.id == product_id)
+            .options(
+                selectinload(Product.category).selectinload(Category.children),
+                selectinload(Product.brand),
+            )
+        )
+        product = result.scalar_one()
+        return {
+            **{c.name: getattr(product, c.name) for c in product.__table__.columns},
+            "category": product.category,
+            "brand": product.brand,
+            "suppliers": [],
+        }
+
 
 router = APIRouter(prefix="/products", tags=["Products"])
 inventory_router = APIRouter(prefix="/inventory", tags=["Inventory"])
@@ -215,11 +258,67 @@ async def list_products(
 
     # Paginate
     offset = (page - 1) * limit
-    result = await db.execute(query.offset(offset).limit(limit))
-    products = result.scalars().all()
+    used_fallback = False
+    try:
+        result = await db.execute(query.offset(offset).limit(limit))
+        products = result.scalars().all()
+    except (ProgrammingError, OperationalError):
+        # product_suppliers migration (009_product_suppliers.sql) hasn't been
+        # run against this database yet, so the supplier eager-load below
+        # fails on every single product listing — this used to take the
+        # whole page down silently (frontend showed "No products yet" with
+        # no error). Degrade gracefully instead: retry without that eager
+        # load so the catalogue still loads; supplier tags just won't show
+        # until the migration is applied.
+        await db.rollback()
+        fallback_query = select(Product).options(
+            selectinload(Product.category), selectinload(Product.brand),
+        )
+        if is_manager:
+            if status:
+                fallback_query = fallback_query.where(Product.status == status.upper())
+        else:
+            fallback_query = fallback_query.where(Product.status == ProductStatus.ACTIVE)
+        if category_id:
+            fallback_query = fallback_query.where(Product.category_id == category_id)
+        if brand_id:
+            fallback_query = fallback_query.where(Product.brand_id == brand_id)
+        if search:
+            fallback_query = fallback_query.where(
+                or_(
+                    Product.name.ilike(f"%{search}%"),
+                    Product.description.ilike(f"%{search}%"),
+                    Product.sku.ilike(f"%{search}%"),
+                    Product.part_number.ilike(f"%{search}%"),
+                )
+            )
+        if min_price is not None:
+            fallback_query = fallback_query.where(Product.price_kes >= min_price)
+        if max_price is not None:
+            fallback_query = fallback_query.where(Product.price_kes <= max_price)
+        if is_online_exclusive is not None:
+            fallback_query = fallback_query.where(Product.is_online_exclusive == is_online_exclusive)
+        result = await db.execute(fallback_query.offset(offset).limit(limit))
+        products = result.scalars().all()
+        used_fallback = True
+
+    if used_fallback:
+        # suppliers wasn't eager-loaded on this path (that's the whole point
+        # of the fallback — see above), so letting ProductListItem touch
+        # p.suppliers here would trigger a lazy-load outside an await
+        # context and raise MissingGreenlet, crashing the request anyway.
+        # Build items by hand with suppliers forced to [] instead.
+        items = [
+            ProductListItem.model_validate(
+                {**{c.name: getattr(p, c.name) for c in p.__table__.columns}, "suppliers": []}
+            )
+            for p in products
+        ]
+    else:
+        items = [ProductListItem.model_validate(p) for p in products]
 
     return {
-        "items": [ProductListItem.model_validate(p) for p in products],
+        "items": items,
         "total": total,
         "page": page,
         "limit": limit,
@@ -240,19 +339,34 @@ async def get_product(slug_or_id: str, db: AsyncSession = Depends(get_db)):
     else:
         condition = Product.slug == slug_or_id
 
-    result = await db.execute(
-        select(Product)
-        .where(condition)
-        .options(
-            selectinload(Product.category).selectinload(Category.children),
-            selectinload(Product.brand),
-            selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
+    try:
+        result = await db.execute(
+            select(Product)
+            .where(condition)
+            .options(
+                selectinload(Product.category).selectinload(Category.children),
+                selectinload(Product.brand),
+                selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
+            )
         )
-    )
-    product = result.scalar_one_or_none()
-    if not product:
-        raise NotFoundError("Product")
-    return product
+        product = result.scalar_one_or_none()
+        if not product:
+            raise NotFoundError("Product")
+        return product
+    except (ProgrammingError, OperationalError):
+        # Same missing-migration fallback as list_products above. Re-fetch by
+        # the *resolved* id through the shared helper, which itself never
+        # touches the un-loaded suppliers relationship on the ORM object —
+        # doing that here (e.g. via product.id after a plain fallback query)
+        # was the same MissingGreenlet trap as before, just one level deeper:
+        # it used to make the Edit button's product-detail fetch 500, which
+        # the frontend then silently showed as a blank "Add Product" form.
+        await db.rollback()
+        result = await db.execute(select(Product.id).where(condition))
+        product_id = result.scalar_one_or_none()
+        if not product_id:
+            raise NotFoundError("Product")
+        return await _fetch_product_with_suppliers(db, product_id)
 
 
 @router.post("", response_model=ProductOut, status_code=201)
@@ -274,23 +388,23 @@ async def create_product(
             raise ValidationError(f"Invalid status: '{body.status}'")
 
     db.add(product)
-    for row in body.suppliers:
-        db.add(ProductSupplier(
-            id=str(uuid.uuid4()), product_id=product.id,
-            supplier_id=row.supplier_id, price_usd=row.price_usd,
-        ))
-    await db.commit()
+    try:
+        for row in body.suppliers:
+            db.add(ProductSupplier(
+                id=str(uuid.uuid4()), product_id=product.id,
+                supplier_id=row.supplier_id, price_usd=row.price_usd,
+            ))
+        await db.commit()
+    except (ProgrammingError, OperationalError):
+        # product_suppliers table doesn't exist yet (migration
+        # 009_product_suppliers.sql not applied) — still create the product
+        # itself rather than 500ing the whole "Add Product" action; supplier
+        # tags just won't be saved until the migration is applied.
+        await db.rollback()
+        db.add(product)
+        await db.commit()
 
-    result = await db.execute(
-        select(Product)
-        .where(Product.id == product.id)
-        .options(
-            selectinload(Product.category).selectinload(Category.children),
-            selectinload(Product.brand),
-            selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
-        )
-    )
-    return result.scalar_one()
+    return await _fetch_product_with_suppliers(db, product.id)
 
 
 @router.patch("/{product_id}", response_model=ProductOut)
@@ -321,28 +435,33 @@ async def update_product(
     # touched" (edit form didn't send it), an empty list means "clear them
     # all". Either way, full replace rather than a merge: simplest to keep
     # correct, and the edit form always sends its complete current set.
-    if suppliers_value is not None:
-        await db.execute(
-            ProductSupplier.__table__.delete().where(ProductSupplier.product_id == product_id)
-        )
-        for row in suppliers_value:
-            db.add(ProductSupplier(
-                id=str(uuid.uuid4()), product_id=product_id,
-                supplier_id=row["supplier_id"], price_usd=row.get("price_usd"),
-            ))
+    try:
+        if suppliers_value is not None:
+            await db.execute(
+                ProductSupplier.__table__.delete().where(ProductSupplier.product_id == product_id)
+            )
+            for row in suppliers_value:
+                db.add(ProductSupplier(
+                    id=str(uuid.uuid4()), product_id=product_id,
+                    supplier_id=row["supplier_id"], price_usd=row.get("price_usd"),
+                ))
+        await db.commit()
+    except (ProgrammingError, OperationalError):
+        # product_suppliers table doesn't exist yet — still commit the rest
+        # of the edit (name, price, and critically `status`, which is how
+        # the Deactivate/Activate toggle button on the Products page works).
+        # Without this, a deactivate click was committing the status change
+        # underneath, then crashing on this exact re-fetch before it could
+        # respond — so the button looked broken even though the row had
+        # already flipped in the database.
+        await db.rollback()
+        for field, value in update_data.items():
+            setattr(product, field, value)
+        if status_value:
+            product.status = ProductStatus(status_value.lower())
+        await db.commit()
 
-    await db.commit()
-
-    result = await db.execute(
-        select(Product)
-        .where(Product.id == product_id)
-        .options(
-            selectinload(Product.category).selectinload(Category.children),
-            selectinload(Product.brand),
-            selectinload(Product.suppliers).selectinload(ProductSupplier.supplier),
-        )
-    )
-    return result.scalar_one()
+    return await _fetch_product_with_suppliers(db, product_id)
 
 
 @router.delete("/{product_id}", status_code=204)
@@ -506,7 +625,7 @@ async def update_inventory(
 async def restock(
     product_id: str,
     branch_id: str,
-    quantity: int,
+    quantity: int = Query(..., gt=0),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_catalog_manager),
 ):

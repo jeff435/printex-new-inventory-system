@@ -3,18 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.core.deps import get_current_user
-from app.core.exceptions import NotFoundError, UnauthorizedError
+from app.core.deps import get_current_user, require_director
+from app.core.exceptions import NotFoundError, UnauthorizedError, ValidationError
 from app.auth.models import User, UserRole, Branch
 
 router = APIRouter(prefix="/branches", tags=["Branches"])
-
-ADMIN_ROLES = {UserRole.SUPER_ADMIN, UserRole.BRANCH_MANAGER}
-
-
-def _require_admin(current_user: User):
-    if current_user.role not in ADMIN_ROLES:
-        raise UnauthorizedError("Admin access required")
 
 
 @router.get("")
@@ -43,9 +36,11 @@ async def list_branches(db: AsyncSession = Depends(get_db)):
 async def create_branch(
     body: dict,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(require_director),
 ):
-    _require_admin(current_user)
+    for field in ("name", "slug", "address", "area"):
+        if not body.get(field):
+            raise ValidationError(f"{field}: is required")
     branch = Branch(
         name=body["name"],
         slug=body["slug"],
@@ -79,9 +74,8 @@ async def update_branch(
     branch_id: str,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(require_director),
 ):
-    _require_admin(current_user)
     branch = await db.get(Branch, branch_id)
     if not branch:
         raise NotFoundError("Branch")
@@ -89,6 +83,8 @@ async def update_branch(
                "email", "delivery_radius_km", "is_active", "manager_id"}
     for key, val in body.items():
         if key in allowed:
+            if key in ("name", "address", "area") and not val:
+                raise ValidationError(f"{key}: cannot be blank")
             setattr(branch, key, val)
     await db.commit()
     await db.refresh(branch)

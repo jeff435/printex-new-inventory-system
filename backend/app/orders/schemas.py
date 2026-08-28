@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from app.orders.models import OrderStatus, PaymentMethod, DeliveryType
@@ -7,13 +7,13 @@ from app.delivery.schemas import DeliveryOut
 
 class OrderItemIn(BaseModel):
     product_id: str
-    quantity: int
+    quantity: int = Field(..., gt=0)
 
 
 class OrderCreate(BaseModel):
     branch_id: str
     address_id: str
-    items: List[OrderItemIn]
+    items: List[OrderItemIn] = Field(..., min_length=1)
     delivery_type: DeliveryType = DeliveryType.HOME_DELIVERY
     payment_method: PaymentMethod
     delivery_slot_date: Optional[str] = None
@@ -21,7 +21,7 @@ class OrderCreate(BaseModel):
     delivery_slot_end: Optional[str] = None
     promo_code: Optional[str] = None
     special_instructions: Optional[str] = None
-    loyalty_points_to_use: int = 0
+    loyalty_points_to_use: int = Field(0, ge=0)
 
 
 class OrderItemProductOut(BaseModel):

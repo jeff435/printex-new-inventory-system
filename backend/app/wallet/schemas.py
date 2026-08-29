@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, Field
 from typing import List, Optional
 
 
@@ -42,4 +42,14 @@ class TopUpRequest(BaseModel):
 
 class PayWithWalletRequest(BaseModel):
     order_id: str
-    amount_kes: int          # in cents
+    # ge=1 rather than gt=0 since these are integer cents, not a float —
+    # the real vulnerability this closes: unlike TopUpRequest.amount_kes
+    # above (validated), this field had NO constraint at all, and the
+    # /wallet/pay endpoint below deducts wallet.balance_kes -= amount_kes
+    # with no floor check on the result. A negative amount_kes here made
+    # that subtraction ADD money to the wallet — wallet.balance_kes -=
+    # (-50000) is balance_kes += 50000 — recorded as a normal "payment"
+    # transaction. Any signed-in customer could have called this endpoint
+    # directly (not through the checkout UI, which only ever sends a real
+    # positive total) to mint themselves unlimited wallet balance.
+    amount_kes: int = Field(..., ge=1)

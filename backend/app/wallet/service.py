@@ -12,7 +12,7 @@ Rules:
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.orders.models import Wallet, WalletTransaction, WalletTransactionType
+from app.orders.models import Wallet, WalletTransaction, WalletTransactionType, Order
 
 
 def format_kes(amount_cents: int) -> str:
@@ -69,7 +69,26 @@ async def pay_with_wallet(
     """
     Deduct amount from wallet for an order.
     Returns (success, message).
+
+    Before this, the endpoint trusted amount_cents and order_id from the
+    client with no cross-check at all — the checkout page only ever sends
+    the real order total, but nothing stopped a direct API call from
+    paying for someone ELSE's order_id, or paying a tiny fraction of what
+    an order actually costs while the order still gets treated as settled
+    for that amount. Now the order must actually belong to this user, and
+    the amount must match its real total_kes exactly — the client-supplied
+    amount_cents is only used for the error message, never trusted for the
+    deduction itself.
     """
+    result = await db.execute(select(Order).where(Order.id == order_id))
+    order = result.scalar_one_or_none()
+    if not order:
+        return False, "Order not found"
+    if order.user_id != user_id:
+        return False, "This order doesn't belong to you"
+
+    amount_cents = order.total_kes  # server-computed, never the client's figure
+
     wallet = await get_or_create_wallet(user_id, db)
 
     if wallet.balance_kes < amount_cents:

@@ -3,6 +3,14 @@ import { HeroCarouselV2 } from "@/components/v2/HeroCarouselV2";
 import { CategoryQuickGridV2 } from "@/components/v2/CategoryQuickGridV2";
 import { DealsSectionV2 } from "@/components/v2/DealsSectionV2";
 import { PromoCardV2 } from "@/components/v2/PromoCardV2";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Printing Press Spare Parts in Nairobi | Printex Engineers",
+  description:
+    "Shop genuine printing press spare parts online — valves, cylinders, bearings, grippers and more. In stock in Nairobi with fast dispatch.",
+  alternates: { canonical: "/" },
+};
 
 export default function HomePage() {
   return (

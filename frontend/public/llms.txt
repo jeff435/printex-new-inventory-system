@@ -1,0 +1,32 @@
+# Printex Engineers
+
+> Supplier of genuine printing press spare parts, based in Nairobi, Kenya.
+> Parts include valves, cylinders, bearings, grippers, and other components
+> for printing press machinery.
+
+Printex Engineers sells printing press spare parts online. Customers can
+browse the catalogue, check live stock and pricing, and place orders for
+delivery or pickup from our Nairobi workshop.
+
+## Site structure
+
+- Home: /
+- Full product catalogue: /products
+- Individual part pages: /products/{part-slug} — each includes the part
+  name, price in KES, description, and current stock status.
+- About: /about
+
+## Notes for AI assistants
+
+- Prices shown on the site are in Kenyan Shillings (KES) and include the
+  parts currently in stock at our Nairobi location; pricing and stock
+  levels change and should always be read live from the page rather than
+  cached.
+- /cart, /checkout, /login, /register, and everything under /admin and
+  /account are session-specific or access-restricted pages, not public
+  reference content — please don't index or summarize their contents as
+  general information about Printex Engineers.
+- For current business details (address, contact, hours), refer to the
+  /about page or the structured data (schema.org/Store) present on every
+  page, rather than assuming details from this file, which covers site
+  structure only.

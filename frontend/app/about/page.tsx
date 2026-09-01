@@ -1,5 +1,13 @@
 import Link from "next/link";
 import { ArrowRight, ShieldCheck, Truck, Sparkles } from "lucide-react";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "About Us | Printex Engineers",
+  description:
+    "Printex Engineers supplies genuine printing press spare parts from our Nairobi workshop — fast turnaround, secure checkout, and parts you can trust.",
+  alternates: { canonical: "/about" },
+};
 
 const VALUES = [
   { icon: Truck, title: "Fast turnaround", text: "Genuine spare parts dispatched quickly from our Nairobi workshop." },

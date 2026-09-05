@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuthStore } from "@/stores";
 import BranchSelector from "@/components/admin/BranchSelector";
+import AdminAIWidget from "@/components/admin/AdminAIWidget";
 import Link from "next/link";
 import {
     LayoutDashboard, ClipboardList, Package, Tags,
@@ -138,6 +139,7 @@ export default function AdminShellClient({ children }: { children: React.ReactNo
                 </header>
                 <main className="flex-1 overflow-y-auto p-6 print:overflow-visible print:p-0">{children}</main>
             </div>
+            <AdminAIWidget />
         </div>
     );
 }

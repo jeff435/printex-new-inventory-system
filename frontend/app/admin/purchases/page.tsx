@@ -100,6 +100,11 @@ function PurchasesTab() {
     // row (if any) currently has its results dropdown open.
     const [partQueries, setPartQueries] = useState([""]);
     const [openRow, setOpenRow] = useState<number | null>(null);
+    // Which row triggered "+ Add New Part" — that row gets the newly
+    // created product once the modal succeeds.
+    const [newPartForRow, setNewPartForRow] = useState<number | null>(null);
+    const [newPart, setNewPart] = useState({ name: "", sku: "", part_number: "", price_kes: "" });
+    const [busyExport, setBusyExport] = useState<{ id: string; type: "pdf" | "excel" } | null>(null);
 
     const { data: purchases, isLoading } = useQuery({
         queryKey: ["purchases"],
@@ -149,6 +154,69 @@ function PurchasesTab() {
         },
         onError: (err: any) => toast.error(err.response?.data?.message || "Failed to cancel"),
     });
+
+    // "Add New Part" — a purchase order can only reference a real catalogue
+    // product (unlike a proforma invoice, which can bill for something not
+    // yet in stock), so "adding manually" here means genuinely creating the
+    // product first via the same endpoint the Products page uses, THEN
+    // using it as this row's line item. This is what makes it show up on
+    // the Products page automatically — it's not a separate, disconnected
+    // "manual" entry the way proforma's is.
+    const createProductMutation = useMutation({
+        mutationFn: (payload: Record<string, unknown>) => api.post("/products", payload),
+        onSuccess: (res: any) => {
+            const product = res.data;
+            queryClient.invalidateQueries({ queryKey: ["products-for-purchases"] });
+            queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+            if (newPartForRow !== null) {
+                setItems((prev) => prev.map((it, i) => i === newPartForRow ? { ...it, product_id: product.id } : it));
+            }
+            toast.success(`"${product.name}" added to the catalogue`);
+            setNewPartForRow(null);
+            setNewPart({ name: "", sku: "", part_number: "", price_kes: "" });
+        },
+        onError: (err: any) => toast.error(err.response?.data?.detail || err.response?.data?.message || "Failed to create part"),
+    });
+
+    const handleCreateNewPart = () => {
+        if (!newPart.name.trim() || !newPart.sku.trim()) { toast.error("Name and SKU are required"); return; }
+        const price = parseFloat(newPart.price_kes);
+        if (isNaN(price) || price < 0) { toast.error("Enter a valid price"); return; }
+        const slug = newPart.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + Date.now().toString(36);
+        createProductMutation.mutate({
+            name: newPart.name.trim(), sku: newPart.sku.trim(), slug,
+            part_number: newPart.part_number.trim() || null,
+            price_kes: Math.round(price * 100),
+        });
+    };
+
+    const handleDownload = async (id: string, type: "pdf" | "excel", purchaseNumber: string) => {
+        setBusyExport({ id, type });
+        try {
+            const res = type === "pdf" ? await purchasesApi.pdfBlob(id) : await purchasesApi.excelBlob(id);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${purchaseNumber}.${type === "pdf" ? "pdf" : "xlsx"}`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        } catch {
+            toast.error(`Failed to ${type === "pdf" ? "download PDF" : "export Excel"}`);
+        } finally {
+            setBusyExport(null);
+        }
+    };
+
+    const handlePrint = async (id: string) => {
+        try {
+            const res = await purchasesApi.pdfBlob(id);
+            const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+            const win = window.open(url, "_blank");
+            win?.addEventListener("load", () => win.print());
+        } catch {
+            toast.error("Failed to open for printing");
+        }
+    };
 
     const productList = products?.items ?? [];
 
@@ -271,14 +339,31 @@ function PurchasesTab() {
                                 </div>
                             );
                         })}
-                        <button onClick={() => {
-                            setItems((prev) => [...prev, { product_id: "", quantity: "1", unit_cost: "" }]);
-                            setPartQueries((prev) => [...prev, ""]);
-                        }}
-                            className="text-xs text-blue-600 hover:underline">+ Add line item</button>
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => {
+                                setItems((prev) => [...prev, { product_id: "", quantity: "1", unit_cost: "" }]);
+                                setPartQueries((prev) => [...prev, ""]);
+                            }}
+                                className="text-xs text-blue-600 hover:underline">+ Add line item</button>
+                            <button
+                                onClick={() => {
+                                    // Opens the modal targeting a fresh new row, so picking/creating
+                                    // a part doesn't overwrite whatever's already in the last row.
+                                    setItems((prev) => [...prev, { product_id: "", quantity: "1", unit_cost: "" }]);
+                                    setPartQueries((prev) => [...prev, ""]);
+                                    setNewPartForRow(items.length);
+                                }}
+                                className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg px-2 py-1"
+                            >
+                                <Plus size={11} /> Add New Part
+                            </button>
+                        </div>
                     </div>
 
                     <textarea placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} className={`${inp} h-16`} />
+                    <p className="text-xs text-gray-400 -mt-2">
+                        Can't find a part above? Use "+ Add New Part" — it's added to the Products catalogue right away and to this order.
+                    </p>
 
                     <button onClick={handleCreate} disabled={createMutation.isPending} className="glass-btn text-sm disabled:opacity-50">
                         {createMutation.isPending ? "Creating..." : "Create Purchase Order"}
@@ -303,9 +388,21 @@ function PurchasesTab() {
                                 <p className="font-semibold text-sm text-gray-900">{p.purchase_number}</p>
                                 <p className="text-xs text-gray-500">{money(p.total_amount)} · {p.items?.length ?? 0} line items</p>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${p.status === "received" ? "bg-green-100 text-green-700" : p.status === "cancelled" ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"
                                     }`}>{p.status}</span>
+                                <button onClick={() => handlePrint(p.id)} title="Print"
+                                    className="flex items-center gap-1 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-2 py-1 rounded-lg text-xs font-medium">
+                                    <Printer size={12} /> Print
+                                </button>
+                                <button onClick={() => handleDownload(p.id, "excel", p.purchase_number)} disabled={busyExport?.id === p.id && busyExport.type === "excel"}
+                                    className="flex items-center gap-1 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-2 py-1 rounded-lg text-xs font-medium disabled:opacity-50">
+                                    {busyExport?.id === p.id && busyExport.type === "excel" ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />} Excel
+                                </button>
+                                <button onClick={() => handleDownload(p.id, "pdf", p.purchase_number)} disabled={busyExport?.id === p.id && busyExport.type === "pdf"}
+                                    className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-2 py-1 rounded-lg text-xs font-medium">
+                                    {busyExport?.id === p.id && busyExport.type === "pdf" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} PDF
+                                </button>
                                 {p.status === "draft" && (
                                     <>
                                         <button onClick={() => receiveMutation.mutate(p.id)} title="Mark received — adds stock"
@@ -321,6 +418,32 @@ function PurchasesTab() {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {newPartForRow !== null && (
+                <div className="fixed inset-0 z-[999] flex items-start sm:items-center justify-center bg-black/40 p-3 sm:p-6">
+                    <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl mt-10 sm:mt-0">
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                            <h3 className="font-semibold text-gray-900">Add a new part</h3>
+                            <button onClick={() => setNewPartForRow(null)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+                        </div>
+                        <div className="p-5 space-y-3">
+                            <p className="text-xs text-gray-400 -mt-1">This creates a real product in your catalogue — it'll show up on the Products page too, not just this order.</p>
+                            <input autoFocus placeholder="Part name *" value={newPart.name} onChange={(e) => setNewPart({ ...newPart, name: e.target.value })} className={inp} />
+                            <div className="grid grid-cols-2 gap-3">
+                                <input placeholder="SKU *" value={newPart.sku} onChange={(e) => setNewPart({ ...newPart, sku: e.target.value })} className={inp} />
+                                <input placeholder="Part number" value={newPart.part_number} onChange={(e) => setNewPart({ ...newPart, part_number: e.target.value })} className={inp} />
+                            </div>
+                            <input type="number" min="0" step="0.01" placeholder="Selling price (KES) *" value={newPart.price_kes} onChange={(e) => setNewPart({ ...newPart, price_kes: e.target.value })} className={inp} />
+                        </div>
+                        <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2">
+                            <button onClick={() => setNewPartForRow(null)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">Cancel</button>
+                            <button onClick={handleCreateNewPart} disabled={createProductMutation.isPending} className="glass-btn text-sm px-4 py-2 disabled:opacity-50">
+                                {createProductMutation.isPending ? "Adding..." : "Add & Use in this Order"}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

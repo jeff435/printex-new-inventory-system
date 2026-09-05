@@ -19,6 +19,7 @@ from app.delivery.router import router as delivery_router
 from app.branches.router import router as branches_router
 from app.uploads.router import router as uploads_router
 from app.chat.router import router as chat_router
+from app.admin_ai.router import router as admin_ai_router
 from app.proforma.router import router as proforma_router
 from app.analytics.router import router as analytics_router
 from app.purchases.router import (
@@ -123,6 +124,7 @@ app.include_router(delivery_router,   prefix=API_PREFIX)
 app.include_router(branches_router,   prefix=API_PREFIX)
 app.include_router(uploads_router,    prefix=API_PREFIX)
 app.include_router(chat_router, prefix=API_PREFIX)
+app.include_router(admin_ai_router, prefix=API_PREFIX)
 app.include_router(proforma_router, prefix=API_PREFIX)
 app.include_router(analytics_router, prefix=API_PREFIX)
 # These three were fully built (see app/purchases/router.py) but never wired

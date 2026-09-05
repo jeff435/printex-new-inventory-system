@@ -6,7 +6,7 @@ import { Bot, X, Send, Paperclip, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 type Msg = { role: "user" | "assistant"; content: string };
-type Provider = "groq" | "xai";
+type Provider = "groq" | "xai" | "mock";
 
 // The second, privileged "AI" described in the system: unlike the public
 // ChatWidget (unauthenticated, 3 read-only tools), this one only ever
@@ -20,8 +20,8 @@ export default function AdminAIWidget() {
     const [messages, setMessages] = useState<Msg[]>([]);
     const [input, setInput] = useState("");
     const [sessionId, setSessionId] = useState<string | null>(null);
-    const [provider, setProvider] = useState<Provider>("groq");
-    const [providers, setProviders] = useState<{ groq: { available: boolean }; xai: { available: boolean } } | null>(null);
+    const [provider, setProvider] = useState<Provider>("mock");
+    const [providers, setProviders] = useState<{ groq: { available: boolean }; xai: { available: boolean }; mock: { available: boolean } } | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -29,7 +29,14 @@ export default function AdminAIWidget() {
 
     useEffect(() => {
         if (isOpen && !providers) {
-            api.get("/admin-ai/providers").then((r) => setProviders(r.data)).catch(() => {});
+            api.get("/admin-ai/providers").then((r) => {
+                setProviders(r.data);
+                // Prefer a real model if one's actually configured; otherwise
+                // stay on "mock" (the default) so the assistant never opens
+                // on a provider that's just going to fail.
+                if (r.data.groq?.available) setProvider("groq");
+                else if (r.data.xai?.available) setProvider("xai");
+            }).catch(() => {});
         }
     }, [isOpen, providers]);
 
@@ -56,6 +63,10 @@ export default function AdminAIWidget() {
     };
 
     const handleFileUpload = async (file: File) => {
+        if (provider === "mock") {
+            toast.error("Reading invoices needs a real AI model — switch to Groq or xAI Grok first.");
+            return;
+        }
         setUploading(true);
         setMessages((m) => [...m, { role: "user", content: `📄 Uploaded: ${file.name}` }]);
         try {
@@ -95,6 +106,7 @@ export default function AdminAIWidget() {
                             >
                                 <option value="groq">Groq {providers && !providers.groq.available ? "(not set up)" : ""}</option>
                                 <option value="xai">xAI Grok {providers && !providers.xai.available ? "(not set up)" : ""}</option>
+                                <option value="mock">Offline (no key needed)</option>
                             </select>
                             <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-white/10 rounded-lg"><X size={16} /></button>
                         </div>

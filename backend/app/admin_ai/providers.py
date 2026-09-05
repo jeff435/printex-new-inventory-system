@@ -26,16 +26,22 @@ XAI_BASE_URL = "https://api.x.ai/v1"
 
 _groq_client: "AsyncGroq | None" = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-PROVIDERS = {"groq": "Groq (llama-3.3-70b)", "xai": "xAI Grok"}
+PROVIDERS = {"groq": "Groq (llama-3.3-70b)", "xai": "xAI Grok", "mock": "Offline Assistant (no API key needed)"}
 
 
 def provider_status() -> dict:
     """What the frontend's model switcher shows — which provider(s) are
     actually usable right now, so a director/secretary/admin never picks
-    one that's unconfigured and gets a confusing failure mid-conversation."""
+    one that's unconfigured and gets a confusing failure mid-conversation.
+    "mock" is always available — it needs no key and no network call to
+    any AI provider (see admin_ai.mock_engine) — so this assistant always
+    has at least one working option even if every paid provider is down,
+    unconfigured, or the API key was rejected.
+    """
     return {
         "groq": {"label": PROVIDERS["groq"], "available": bool(GROQ_API_KEY)},
         "xai": {"label": PROVIDERS["xai"], "available": bool(XAI_API_KEY)},
+        "mock": {"label": PROVIDERS["mock"], "available": True},
     }
 
 

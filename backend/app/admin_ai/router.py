@@ -30,6 +30,7 @@ from app.core.redis import redis_get, redis_set
 from app.auth.models import User
 from app.admin_ai.providers import create_completion, provider_status
 from app.admin_ai.tools import TOOL_SCHEMAS, TOOL_IMPLEMENTATIONS, add_product
+from app.admin_ai.mock_engine import run_mock
 
 logger = logging.getLogger("printex.admin_ai")
 
@@ -76,14 +77,22 @@ async def admin_chat(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_staff),
 ):
-    provider = payload.provider if payload.provider in ("groq", "xai") else "groq"
+    provider = payload.provider if payload.provider in ("groq", "xai", "mock") else "groq"
     session_id = payload.session_id or str(uuid.uuid4())
 
     history = await redis_get(_session_key(session_id)) or [{"role": "system", "content": SYSTEM_PROMPT}]
     history.append({"role": "user", "content": payload.message})
 
     try:
-        reply_text = await _run_admin_chat_loop(history, db, provider)
+        if provider == "mock":
+            # No LLM call at all — see mock_engine's own docstring for why.
+            # History is still recorded so switching providers mid-session
+            # doesn't lose context, but the mock engine itself is
+            # stateless/rule-based per message, not a conversation.
+            reply_text = await run_mock(payload.message, db)
+            history.append({"role": "assistant", "content": reply_text})
+        else:
+            reply_text = await _run_admin_chat_loop(history, db, provider)
     except HTTPException:
         raise
     except Exception as exc:
@@ -182,7 +191,12 @@ async def extract_invoice(
         "If a price genuinely isn't stated for a line, use 0 for price_kes.\n\n"
         f"INVOICE TEXT:\n{text[:6000]}"
     )
-    provider = provider if provider in ("groq", "xai") else "groq"
+    if provider == "mock" or provider not in ("groq", "xai"):
+        raise HTTPException(
+            status_code=400,
+            detail="Reading an invoice and pulling out part names/prices needs a real AI model — "
+                   "offline mode can't do this. Switch to Groq or xAI Grok in the assistant's model picker first.",
+        )
     message = await create_completion(provider, [{"role": "user", "content": extraction_prompt}])
     raw_content = message.get("content") or "[]"
 

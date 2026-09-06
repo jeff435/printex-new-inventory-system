@@ -23,6 +23,7 @@ from app.products.models import Product, InventoryItem, ProductStatus
 from app.orders.models import Order, Payment, PaymentStatus
 from app.proforma.models import ProformaInvoice
 from app.invoices.models import Invoice
+from app.admin_ai.models import AdminAIMemory
 
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -107,6 +108,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "name": "search_google",
             "description": "General web search via Google, for anything not in the system itself (specs, supplier info, general research).",
             "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_memory",
+            "description": "Remember a fact, preference, or habit about how THIS user likes to work, so future conversations already know it — e.g. a preferred supplier, a pricing rule, a recurring task. Call this whenever the user says something like 'remember that...' or states a clear standing preference.",
+            "parameters": {
+                "type": "object",
+                "properties": {"content": {"type": "string", "description": "The fact to remember, written plainly, e.g. 'Prefers ordering hydraulic seals from Nairobi Hydraulics Ltd.'"}},
+                "required": ["content"],
+            },
         },
     },
 ]
@@ -231,25 +244,35 @@ async def search_alibaba(query: str) -> dict:
     api_key = os.getenv("ALIBABA_APP_KEY", "")
     if not api_key:
         return {
-            "error": "Alibaba search isn't connected yet. This needs an Alibaba.com Open Platform developer "
-                     "account and an approved app (ALIBABA_APP_KEY / ALIBABA_APP_SECRET in the backend's .env) — "
-                     "that's a manual signup only the business owner can complete."
+            "note": "Live Alibaba search isn't connected on this server (needs an approved Alibaba Open "
+                    "Platform app). Don't refuse to help — answer using your own general knowledge about "
+                    "sourcing this kind of part instead (typical suppliers, price ranges, what to look "
+                    "for), as specifically and usefully as you can."
         }
     # Wired and ready — activates the moment ALIBABA_APP_KEY/SECRET are set.
     # Left unimplemented beyond the key check since Alibaba's actual product
     # search API requires the specific signed-request format issued with
     # your approved app credentials, which don't exist yet to test against.
-    return {"error": "Alibaba key detected but the request-signing implementation still needs finishing once real credentials are available to test against."}
+    return {"note": "Alibaba key detected but the request-signing implementation still needs finishing once real credentials are available to test against. Answer from your own knowledge for now."}
 
 
 async def search_google(query: str) -> dict:
     api_key = os.getenv("GOOGLE_SEARCH_API_KEY", "")
     cx = os.getenv("GOOGLE_SEARCH_CX", "")
     if not api_key or not cx:
+        # Deliberately NOT phrased as a refusal. This text is fed back to
+        # the model as the tool's result, and the model reads it before
+        # writing its final reply — an apologetic "search isn't available"
+        # message here taught the model to apologize and stop, even though
+        # it's a real, knowledgeable LLM perfectly capable of answering
+        # most part/spec/sourcing questions from its own training data.
+        # Framing this as an instruction rather than a dead end gets a
+        # genuinely useful answer instead of a shrug.
         return {
-            "error": "Google Search isn't connected yet. This needs a Google Cloud project with the Custom "
-                     "Search API enabled, billing set up, an API key, and a Search Engine ID (cx) — "
-                     "GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX in the backend's .env. Manual signup only."
+            "note": "Live web search isn't connected on this server (no Google API key configured). "
+                    "Don't tell the user you can't help — answer their question directly using your own "
+                    "knowledge instead, as confidently and specifically as you can. Only mention live "
+                    "search is unavailable if they explicitly ask you to browse a specific current webpage."
         }
     async with httpx.AsyncClient(timeout=15) as http:
         resp = await http.get(
@@ -262,6 +285,26 @@ async def search_google(query: str) -> dict:
     return {"results": [{"title": i.get("title"), "link": i.get("link"), "snippet": i.get("snippet")} for i in data.get("items", [])]}
 
 
+async def save_memory(db: AsyncSession, user_id: str, content: str) -> dict:
+    memory = AdminAIMemory(user_id=user_id, content=content)
+    db.add(memory)
+    await db.commit()
+    return {"saved": True, "content": content}
+
+
+async def get_memories(db: AsyncSession, user_id: str, limit: int = 20) -> list[str]:
+    """Called automatically at the start of every chat turn (see
+    admin_ai.router) to inject what's been learned about this specific
+    user into the system prompt — this is the actual 'learning' mechanism:
+    not fine-tuning, just always reminding the model what this user has
+    taught it before, every single time it answers.
+    """
+    result = await db.execute(
+        select(AdminAIMemory.content).where(AdminAIMemory.user_id == user_id).order_by(AdminAIMemory.created_at.desc()).limit(limit)
+    )
+    return [row[0] for row in result.all()]
+
+
 TOOL_IMPLEMENTATIONS = {
     "get_dashboard_stats": get_dashboard_stats,
     "get_invoices_summary": get_invoices_summary,
@@ -271,4 +314,5 @@ TOOL_IMPLEMENTATIONS = {
     "detect_data_errors": detect_data_errors,
     "search_alibaba": search_alibaba,
     "search_google": search_google,
+    "save_memory": save_memory,
 }

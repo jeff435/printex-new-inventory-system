@@ -6,7 +6,7 @@ import { Bot, X, Send, Paperclip, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 type Msg = { role: "user" | "assistant"; content: string };
-type Provider = "groq" | "xai" | "mock";
+type Provider = "groq" | "xai" | "gemini" | "ollama" | "mock";
 
 // The second, privileged "AI" described in the system: unlike the public
 // ChatWidget (unauthenticated, 3 read-only tools), this one only ever
@@ -21,7 +21,7 @@ export default function AdminAIWidget() {
     const [input, setInput] = useState("");
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [provider, setProvider] = useState<Provider>("mock");
-    const [providers, setProviders] = useState<{ groq: { available: boolean }; xai: { available: boolean }; mock: { available: boolean } } | null>(null);
+    const [providers, setProviders] = useState<{ groq: { available: boolean }; xai: { available: boolean }; gemini: { available: boolean }; ollama: { available: boolean }; mock: { available: boolean } } | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -33,9 +33,14 @@ export default function AdminAIWidget() {
                 setProviders(r.data);
                 // Prefer a real model if one's actually configured; otherwise
                 // stay on "mock" (the default) so the assistant never opens
-                // on a provider that's just going to fail.
-                if (r.data.groq?.available) setProvider("groq");
+                // on a provider that's just going to fail. Gemini and Groq
+                // both have real free tiers, so they're tried first; xAI
+                // usually needs billing set up, so it's the last real option
+                // before falling back to offline mode.
+                if (r.data.gemini?.available) setProvider("gemini");
+                else if (r.data.groq?.available) setProvider("groq");
                 else if (r.data.xai?.available) setProvider("xai");
+                else if (r.data.ollama?.available) setProvider("ollama");
             }).catch(() => {});
         }
     }, [isOpen, providers]);
@@ -103,10 +108,30 @@ export default function AdminAIWidget() {
                                 value={provider}
                                 onChange={(e) => setProvider(e.target.value as Provider)}
                                 className="text-xs bg-gray-800 text-white border border-gray-700 rounded-lg px-1.5 py-0.5"
+                                style={{ colorScheme: "dark" }}
                             >
-                                <option value="groq">Groq {providers && !providers.groq.available ? "(not set up)" : ""}</option>
-                                <option value="xai">xAI Grok {providers && !providers.xai.available ? "(not set up)" : ""}</option>
-                                <option value="mock">Offline (no key needed)</option>
+                                {/* Inline style, not just Tailwind classes, on each <option> —
+                                    native <select> dropdowns render their options via the OS,
+                                    not the page's CSS engine, in several browsers, so a
+                                    Tailwind-only bg-gray-800/text-white pair can silently be
+                                    ignored and fall back to a white background — exactly what
+                                    made the options unreadable. Explicit inline color/background
+                                    plus colorScheme: dark above is what actually sticks. */}
+                                <option value="gemini" style={{ backgroundColor: "#1f2937", color: "#fff" }}>
+                                    Gemini {providers && !providers.gemini.available ? "(not set up)" : ""}
+                                </option>
+                                <option value="groq" style={{ backgroundColor: "#1f2937", color: "#fff" }}>
+                                    Groq {providers && !providers.groq.available ? "(not set up)" : ""}
+                                </option>
+                                <option value="xai" style={{ backgroundColor: "#1f2937", color: "#fff" }}>
+                                    xAI Grok {providers && !providers.xai.available ? "(not set up)" : ""}
+                                </option>
+                                <option value="ollama" style={{ backgroundColor: "#1f2937", color: "#fff" }}>
+                                    Local model {providers && !providers.ollama.available ? "(not set up)" : ""}
+                                </option>
+                                <option value="mock" style={{ backgroundColor: "#1f2937", color: "#fff" }}>
+                                    Offline (no key needed)
+                                </option>
                             </select>
                             <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-white/10 rounded-lg"><X size={16} /></button>
                         </div>
@@ -115,7 +140,10 @@ export default function AdminAIWidget() {
                     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
                         {messages.length === 0 && (
                             <p className="text-xs text-gray-400">
-                                Ask about stats, invoices, payments, or products — or upload a supplier invoice (PDF) to add parts automatically.
+                                Ask about stats, invoices, payments, or products — or upload a supplier invoice (PDF) to add parts automatically. Tell it "remember that..." and it'll keep that preference for next time.
+                                {provider === "mock" && (
+                                    <> <br /><br />You're in offline mode — real conversation and invoice-reading need Gemini, Groq, xAI, or a free local model (see the picker above).</>
+                                )}
                             </p>
                         )}
                         {messages.map((m, i) => (

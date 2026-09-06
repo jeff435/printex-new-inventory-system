@@ -33,11 +33,23 @@ def _fmt_kes(v) -> str:
     return f"KSh {v:,.2f}"
 
 
-async def run_mock(message: str, db: AsyncSession) -> str:
+async def run_mock(message: str, db: AsyncSession, user_id: str | None = None) -> str:
     msg = message.lower().strip()
 
     if any(w in msg for w in ("help", "what can you do", "capabilities")):
         return HELP_TEXT
+
+    if re.fullmatch(r"(hi|hello|hey|hola|sasa|habari|morning|good morning|good afternoon|good evening)[!. ]*", msg):
+        return "Hi! I'm running in offline mode right now — real conversation needs Groq, Gemini, xAI, or a local model (see the switcher above). I can still pull real numbers for you though. Type \"help\" to see what I can look up."
+
+    if any(w in msg for w in ("thank", "thanks", "cheers")):
+        return "You're welcome!"
+
+    m = re.search(r"remember (?:that\s+)?(.+)", msg, re.IGNORECASE)
+    if m and user_id:
+        content = m.group(1).strip()
+        await t.save_memory(db, user_id=user_id, content=content)
+        return f"Got it, I'll remember: \"{content}\". This works even in offline mode — I'll bring it up again once you switch to a real model that can actually hold a conversation."
 
     if any(w in msg for w in ("stat", "dashboard", "how many", "overview", "revenue")):
         data = await t.get_dashboard_stats(db)

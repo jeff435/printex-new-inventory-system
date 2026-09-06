@@ -29,7 +29,7 @@ from app.core.deps import require_staff
 from app.core.redis import redis_get, redis_set
 from app.auth.models import User
 from app.admin_ai.providers import create_completion, provider_status
-from app.admin_ai.tools import TOOL_SCHEMAS, TOOL_IMPLEMENTATIONS, add_product
+from app.admin_ai.tools import TOOL_SCHEMAS, TOOL_IMPLEMENTATIONS, add_product, get_memories
 from app.admin_ai.mock_engine import run_mock
 
 logger = logging.getLogger("printex.admin_ai")
@@ -44,14 +44,28 @@ def _session_key(session_id: str) -> str:
     return f"admin_ai_session:{session_id}"
 
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_BASE = (
     "You are Printex's internal assistant, used only by directors, secretaries, and the super admin. "
     "You can look up stats, invoices, payments, and products, search the catalogue, flag data-quality "
-    "issues, and add new products when given a clear name and price. Never invent a price, SKU, or "
-    "number — ask the user for it if it's missing. Never claim you performed an action you didn't "
-    "actually call a tool for. Keep answers short and direct; this is a busy staff member, not a "
-    "casual chat."
+    "issues, add new products when given a clear name and price, and remember standing preferences "
+    "this user tells you (call save_memory when they say something like 'remember that...'). Never "
+    "invent a price, SKU, or number — ask the user for it if it's missing. Never claim you performed "
+    "an action you didn't actually call a tool for. If a search tool comes back saying live search "
+    "isn't connected, do NOT apologize or refuse — answer confidently from your own knowledge instead, "
+    "exactly as that tool result instructs. Keep answers short and direct; this is a busy staff member, "
+    "not a casual chat."
 )
+
+
+def _build_system_prompt(memories: list[str]) -> str:
+    if not memories:
+        return SYSTEM_PROMPT_BASE
+    # Injected fresh into every new conversation (see admin_chat below) —
+    # this, not fine-tuning, is the actual mechanism behind "the assistant
+    # learns over time": it's reminded of everything this specific user has
+    # taught it, every single time, for as long as the memory row exists.
+    notes = "\n".join(f"- {m}" for m in memories)
+    return SYSTEM_PROMPT_BASE + f"\n\nThings this specific user has told you to remember:\n{notes}"
 
 
 class AdminChatRequest(BaseModel):
@@ -77,10 +91,17 @@ async def admin_chat(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_staff),
 ):
-    provider = payload.provider if payload.provider in ("groq", "xai", "mock") else "groq"
+    provider = payload.provider if payload.provider in ("groq", "xai", "gemini", "ollama", "mock") else "groq"
     session_id = payload.session_id or str(uuid.uuid4())
 
-    history = await redis_get(_session_key(session_id)) or [{"role": "system", "content": SYSTEM_PROMPT}]
+    history = await redis_get(_session_key(session_id))
+    if not history:
+        # New conversation — load what's been learned about this user
+        # before their first message even gets a reply, not just for
+        # returning sessions. This is what makes memory actually visible
+        # from message one, not just something that accumulates silently.
+        memories = await get_memories(db, current_user.id)
+        history = [{"role": "system", "content": _build_system_prompt(memories)}]
     history.append({"role": "user", "content": payload.message})
 
     try:
@@ -89,10 +110,10 @@ async def admin_chat(
             # History is still recorded so switching providers mid-session
             # doesn't lose context, but the mock engine itself is
             # stateless/rule-based per message, not a conversation.
-            reply_text = await run_mock(payload.message, db)
+            reply_text = await run_mock(payload.message, db, current_user.id)
             history.append({"role": "assistant", "content": reply_text})
         else:
-            reply_text = await _run_admin_chat_loop(history, db, provider)
+            reply_text = await _run_admin_chat_loop(history, db, provider, current_user.id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -103,7 +124,7 @@ async def admin_chat(
     return AdminChatResponse(reply=reply_text, session_id=session_id, provider=provider)
 
 
-async def _run_admin_chat_loop(history: list[dict], db: AsyncSession, provider: str) -> str:
+async def _run_admin_chat_loop(history: list[dict], db: AsyncSession, provider: str, user_id: str) -> str:
     for _ in range(MAX_TOOL_HOPS):
         message = await create_completion(provider, history, tools=TOOL_SCHEMAS)
         tool_calls = message.get("tool_calls")
@@ -130,15 +151,22 @@ async def _run_admin_chat_loop(history: list[dict], db: AsyncSession, provider: 
                 result = {"error": f"Unknown tool '{name}'"}
             else:
                 try:
-                    # Tools that need a DB session take `db` as their first
-                    # positional arg (see admin_ai.tools) — the two web-search
-                    # placeholders don't, so we only pass it when the tool
-                    # implementation actually declares it.
+                    # Tools that need a DB session or the current user's id
+                    # declare `db`/`user_id` as parameters (see
+                    # admin_ai.tools) — the two web-search placeholders
+                    # declare neither, so this only passes what each
+                    # implementation actually asks for. user_id is NEVER
+                    # taken from the model's own arguments — always the
+                    # authenticated caller's real id, so the assistant can
+                    # never be tricked into saving a memory against, or
+                    # reading data scoped to, a different user.
                     sig = inspect.signature(impl)
+                    call_kwargs = dict(args)
                     if "db" in sig.parameters:
-                        result = await impl(db, **args)
-                    else:
-                        result = await impl(**args)
+                        call_kwargs["db"] = db
+                    if "user_id" in sig.parameters:
+                        call_kwargs["user_id"] = user_id
+                    result = await impl(**call_kwargs)
                 except Exception as exc:
                     logger.exception("Admin AI tool '%s' failed", name)
                     result = {"error": str(exc)}
@@ -191,11 +219,11 @@ async def extract_invoice(
         "If a price genuinely isn't stated for a line, use 0 for price_kes.\n\n"
         f"INVOICE TEXT:\n{text[:6000]}"
     )
-    if provider == "mock" or provider not in ("groq", "xai"):
+    if provider == "mock" or provider not in ("groq", "xai", "gemini", "ollama"):
         raise HTTPException(
             status_code=400,
             detail="Reading an invoice and pulling out part names/prices needs a real AI model — "
-                   "offline mode can't do this. Switch to Groq or xAI Grok in the assistant's model picker first.",
+                   "offline mode can't do this. Switch to Gemini, Groq, xAI Grok, or a local model in the assistant's model picker first.",
         )
     message = await create_completion(provider, [{"role": "user", "content": extraction_prompt}])
     raw_content = message.get("content") or "[]"

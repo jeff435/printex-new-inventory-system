@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.products.models import Product, InventoryItem, ProductStatus
 from app.orders.models import Order, Payment, PaymentStatus
 from app.proforma.models import ProformaInvoice
-from app.invoices.models import Invoice
 from app.admin_ai.models import AdminAIMemory
 
 
@@ -44,7 +43,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_invoices_summary",
-            "description": "Recent proforma invoices and finalized invoices — counts by status and the most recent ones.",
+            "description": "Recent proforma invoices — the most recent ones and their status.",
             "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "description": "Max recent items to list. Default 10."}}},
         },
     },
@@ -151,19 +150,19 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> dict:
 
 
 async def get_invoices_summary(db: AsyncSession, limit: int = 10) -> dict:
+    """Only reports on app.proforma.models.ProformaInvoice — the real,
+    live proforma invoice feature this whole app actually uses (see the
+    Proforma Invoices admin page). app.invoices is a separate, older
+    module that's never actually wired into main.py — it's dead code, not
+    a second real invoice type, so there's nothing there worth reporting.
+    """
     pi_result = await db.execute(
         select(ProformaInvoice.pi_number, ProformaInvoice.status, ProformaInvoice.total_kes, ProformaInvoice.customer_name)
         .order_by(ProformaInvoice.created_at.desc()).limit(limit)
     )
     proformas = [{"pi_number": n, "status": s.value if hasattr(s, "value") else s, "total_kes": t / 100, "customer": c} for n, s, t, c in pi_result.all()]
 
-    inv_result = await db.execute(
-        select(Invoice.invoice_number, Invoice.status, Invoice.total, Invoice.customer_name)
-        .order_by(Invoice.created_at.desc()).limit(limit)
-    )
-    invoices = [{"invoice_number": n, "status": s.value if hasattr(s, "value") else s, "total": float(t), "customer": c} for n, s, t, c in inv_result.all()]
-
-    return {"recent_proforma_invoices": proformas, "recent_invoices": invoices}
+    return {"recent_proforma_invoices": proformas}
 
 
 async def get_payments_summary(db: AsyncSession, days: int = 30) -> dict:

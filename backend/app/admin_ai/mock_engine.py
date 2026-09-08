@@ -68,10 +68,6 @@ async def run_mock(message: str, db: AsyncSession, user_id: str | None = None) -
         lines = ["Recent proforma invoices:"]
         for pi in data["recent_proforma_invoices"][:5]:
             lines.append(f"  • {pi['pi_number']} — {pi['customer']} — {pi['status']} — {_fmt_kes(pi['total_kes'])}")
-        if data["recent_invoices"]:
-            lines.append("Recent invoices:")
-            for inv in data["recent_invoices"][:5]:
-                lines.append(f"  • {inv['invoice_number']} — {inv['customer']} — {inv['status']} — {_fmt_kes(inv['total'])}")
         return "\n".join(lines) if len(lines) > 1 else "No invoices found yet."
 
     if "payment" in msg:

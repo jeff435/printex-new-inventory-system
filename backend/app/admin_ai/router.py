@@ -100,7 +100,20 @@ async def admin_chat(
         # before their first message even gets a reply, not just for
         # returning sessions. This is what makes memory actually visible
         # from message one, not just something that accumulates silently.
-        memories = await get_memories(db, current_user.id)
+        #
+        # Wrapped defensively: if the admin_ai_memories table doesn't
+        # exist yet on this database (e.g. migration 011 hasn't been run
+        # here — easy to miss on a separate production database from the
+        # one you tested locally), this used to crash the ENTIRE request
+        # with a bare, unhelpful 500 before the try block below even
+        # started — the assistant couldn't even say "hi" back. Now it
+        # degrades to "no memories yet" and logs the real problem
+        # server-side instead of taking the whole conversation down.
+        try:
+            memories = await get_memories(db, current_user.id)
+        except Exception:
+            logger.exception("Couldn't load AI memories for user %s — continuing without them", current_user.id)
+            memories = []
         history = [{"role": "system", "content": _build_system_prompt(memories)}]
     history.append({"role": "user", "content": payload.message})
 

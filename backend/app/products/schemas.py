@@ -119,12 +119,16 @@ class ProductListItem(BaseModel):
 
 
 class ProductCreate(BaseModel):
-    sku: str = Field(..., min_length=1)
+    # Optional because SKUs are generated server-side (see _generate_sku in
+    # products/router.py). Still accepted so the register import can preserve
+    # codes already written on the shelf; omit it and one is assigned.
+    sku: Optional[str] = None
     part_number: Optional[str] = None
     register_column: Optional[str] = None
     register_note: Optional[str] = None
     name: str = Field(..., min_length=1)
-    slug: str = Field(..., min_length=1)
+    # Derived from `name` and de-duplicated server-side when omitted.
+    slug: Optional[str] = None
     description: Optional[str] = None
     short_description: Optional[str] = None
     category_id: Optional[str] = None

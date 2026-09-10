@@ -150,7 +150,7 @@ function ProductFormContent() {
     };
 
     const handleSubmit = () => {
-        if (!form.name || !form.sku || !form.price_kes) { toast.error("Name, SKU and price are required"); return; }
+        if (!form.name || !form.price_kes) { toast.error("Name and price are required"); return; }
 
         const suppliersPayload = productSuppliers
             .filter((s) => s.supplier_id)
@@ -178,7 +178,11 @@ function ProductFormContent() {
             });
         } else {
             createMutation.mutate({
-                name: form.name, sku: form.sku, part_number: form.part_number || null, slug: form.slug,
+                // sku and slug are deliberately omitted: the server generates
+                // the SKU (PX-<category>-00001) and de-duplicates the slug.
+                // Sending a client-invented SKU is what produced duplicate-key
+                // 409s when two people added parts at the same time.
+                name: form.name, part_number: form.part_number || null,
                 description: form.description || null,
                 short_description: form.short_description || null,
                 price_kes: Math.round(parseFloat(form.price_kes) * 100),
@@ -215,9 +219,19 @@ function ProductFormContent() {
                 <h2 className="font-semibold text-gray-800">Basic Info</h2>
                 <FormField label="Product Name *" k="name" ph="e.g. Brookside Milk 500ml" value={form.name} onChange={setField} />
                 <FormField label="Part Number" k="part_number" ph="e.g. F4.020.292" value={form.part_number} onChange={setField} />
-                <FormField label="SKU *" k="sku" ph="e.g. MILK-BS-500" disabled={isEditing} value={form.sku} onChange={setField} />
-                <FormField label="Slug" k="slug" ph="e.g. brookside-milk-500ml" disabled={isEditing} value={form.slug} onChange={setField} />
-                {isEditing && <p className="text-xs text-gray-400 -mt-2">SKU and slug can't be changed after a product is created.</p>}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">SKU</label>
+                    <div className={inpDisabled}>
+                        {form.sku || "Assigned automatically when you save"}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                        {isEditing
+                            ? "A part's SKU never changes once it's been created."
+                            : "Generated from the category you pick below — e.g. PX-A-00001."}
+                    </p>
+                </div>
+                <FormField label="Slug" k="slug" ph="Leave blank to use the product name" disabled={isEditing} value={form.slug} onChange={setField} />
+                {isEditing && <p className="text-xs text-gray-400 -mt-2">The slug can't be changed after a product is created — links already point at it.</p>}
                 <FormField label="Short Description" k="short_description" ph="One-line summary" value={form.short_description} onChange={setField} />
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>

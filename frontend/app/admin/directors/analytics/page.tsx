@@ -540,6 +540,30 @@ export default function DirectorAnalyticsPage() {
                                         </tr>
                                     ))}
                                 </tbody>
+                                {/* Totals. The per-category rows are the only
+                                    place these figures can be cross-checked
+                                    against the "Total Stock Value" card above,
+                                    and that check is only possible if the
+                                    column actually adds up on screen. */}
+                                <tfoot>
+                                    <tr className="border-t-2 border-gray-200 bg-gray-50/70 font-bold text-gray-900">
+                                        <td className="px-5 py-3">Total</td>
+                                        <td className="px-5 py-3 text-right">
+                                            {stockValue.reduce((t: number, c: any) => t + Number(c.line_items ?? 0), 0)}
+                                        </td>
+                                        <td className="px-5 py-3 text-right">
+                                            {stockValue.reduce((t: number, c: any) => t + Number(c.total_qty ?? 0), 0)}
+                                        </td>
+                                        <td className="px-5 py-3 text-right">
+                                            ${stockValue
+                                                .reduce((t: number, c: any) => t + Number(c.stock_value_usd ?? 0), 0)
+                                                .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </td>
+                                        <td className="px-5 py-3 text-right">
+                                            {kes(stockValue.reduce((t: number, c: any) => t + Number(c.potential_sales_kes ?? 0), 0))}
+                                        </td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                     )}

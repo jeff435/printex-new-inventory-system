@@ -5,6 +5,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import ProgrammingError, OperationalError
 from typing import Optional, List
+import re
 import uuid
 from datetime import datetime, timezone
 from slugify import slugify
@@ -70,6 +71,73 @@ async def _fetch_product_with_suppliers(db: AsyncSession, product_id: str):
         }
 
 
+# ── Automatic identifiers ────────────────────────────────────────────────────
+# `sku` is this system's own identity for a part and carries a UNIQUE
+# constraint. It used to be typed by hand on every "Add Product" form, which
+# made it the single most common way to fail a save (a duplicate 409) and let
+# two people invent two different conventions for the same shelf. It is now
+# generated here and never entered by a human.
+#
+# Shape: PX-<segment>-<00001>
+#   segment = the register column letter ("A".."F") when the category name
+#             carries one, else the first three alphanumerics of the category
+#             name, else GEN for an uncategorised part.
+# The counter is per-segment, so parts group readably by category, and the
+# generator re-checks the database for each candidate rather than trusting the
+# max — two staff adding a part at the same moment would otherwise compute the
+# same next number.
+SKU_PREFIX = "PX"
+_SKU_SCAN_LIMIT = 50
+
+
+def _sku_segment_from_category(cat: Optional[Category]) -> str:
+    if cat is None or not cat.name:
+        return "GEN"
+    # "A — Valves" -> "A"
+    head = cat.name.split(" — ")[0].strip()
+    if head and len(head) <= 3 and head.isalnum():
+        return head.upper()
+    letters = re.sub(r"[^A-Za-z0-9]", "", cat.name).upper()
+    return letters[:3] or "GEN"
+
+
+async def _generate_sku(db: AsyncSession, category_id: Optional[str]) -> str:
+    cat = await db.get(Category, category_id) if category_id else None
+    prefix = f"{SKU_PREFIX}-{_sku_segment_from_category(cat)}-"
+
+    result = await db.execute(select(Product.sku).where(Product.sku.like(f"{prefix}%")))
+    highest = 0
+    for (sku,) in result.all():
+        tail = (sku or "")[len(prefix):]
+        if tail.isdigit():
+            highest = max(highest, int(tail))
+
+    for n in range(highest + 1, highest + 1 + _SKU_SCAN_LIMIT):
+        candidate = f"{prefix}{n:05d}"
+        taken = await db.execute(select(Product.id).where(Product.sku == candidate))
+        if taken.scalar_one_or_none() is None:
+            return candidate
+
+    # Pathological case only (50 consecutive numbers all taken by a concurrent
+    # import). Still unique, just not sequential — better than raising.
+    return f"{prefix}{uuid.uuid4().hex[:6].upper()}"
+
+
+async def _unique_slug(db: AsyncSession, base: str) -> str:
+    """Two parts legitimately share a name ("Gripper Pad" on two presses), but
+    `slug` is UNIQUE — so an unsuffixed slug turned the second save into a
+    raw 500 from the database driver rather than a usable message."""
+    base = (slugify(base) or "part")[:480]
+    candidate = base
+    n = 2
+    while True:
+        taken = await db.execute(select(Product.id).where(Product.slug == candidate))
+        if taken.scalar_one_or_none() is None:
+            return candidate
+        candidate = f"{base}-{n}"
+        n += 1
+
+
 router = APIRouter(prefix="/products", tags=["Products"])
 inventory_router = APIRouter(prefix="/inventory", tags=["Inventory"])
 categories_router = APIRouter(prefix="/categories", tags=["Categories"])
@@ -84,7 +152,14 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
         select(Category)
         .where(Category.is_active == True, Category.parent_id == None)
         .options(selectinload(Category.children))
-        .order_by(Category.sort_order)
+        # Alphabetical, and it STAYS alphabetical when a category is added.
+        # sort_order defaults to 0 for every row, so ordering by it alone left
+        # the sequence entirely to the query planner — a newly created
+        # category could surface anywhere in the list, and the order could
+        # even change between two loads of the same page. Name is the tie-
+        # break that makes the result deterministic; sort_order is kept first
+        # so an explicit, non-zero ordering can still be set deliberately.
+        .order_by(Category.sort_order, func.lower(Category.name))
     )
     return result.scalars().all()
 
@@ -375,12 +450,22 @@ async def create_product(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_catalog_manager),
 ):
-    existing = await db.execute(select(Product).where(Product.sku == body.sku))
-    if existing.scalar_one_or_none():
-        raise ConflictError(f"SKU '{body.sku}' already exists")
+    # SKU is generated, not typed — see _generate_sku above. A caller may
+    # still pass one explicitly (the register import does, to preserve codes
+    # already written on the shelf), and that path keeps its duplicate check.
+    supplied_sku = (body.sku or "").strip()
+    if supplied_sku:
+        existing = await db.execute(select(Product).where(Product.sku == supplied_sku))
+        if existing.scalar_one_or_none():
+            raise ConflictError(f"SKU '{supplied_sku}' already exists")
+        sku = supplied_sku
+    else:
+        sku = await _generate_sku(db, body.category_id)
 
-    data = body.model_dump(exclude={"status", "suppliers"})
-    product = Product(id=str(uuid.uuid4()), **data)
+    slug = await _unique_slug(db, (body.slug or "").strip() or body.name)
+
+    data = body.model_dump(exclude={"status", "suppliers", "sku", "slug"})
+    product = Product(id=str(uuid.uuid4()), sku=sku, slug=slug, **data)
     if body.status:
         try:
             product.status = ProductStatus(body.status.lower())
@@ -626,10 +711,18 @@ async def restock(
     product_id: str,
     branch_id: str,
     quantity: int = Query(..., gt=0),
+    note: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_catalog_manager),
+    current_user: User = Depends(require_catalog_manager),
 ):
-    """Add stock to a branch. Creates inventory record if it doesn't exist."""
+    """Add stock to a branch. Creates inventory record if it doesn't exist.
+
+    Writes a StockMovement row, same as /adjust. It previously moved
+    quantity_on_hand without recording anything, which meant stock added this
+    way existed on the shelf but was invisible to the whole analytics layer —
+    absent from Goods Received, from Top Moving Parts, from Net Stock Movement
+    and from the ledger — so the dashboards and the shelf disagreed with no
+    way to find out why."""
     result = await db.execute(
         select(InventoryItem).where(
             InventoryItem.product_id == product_id,
@@ -652,6 +745,18 @@ async def restock(
         item.quantity_on_hand += quantity
 
     item.update_stock_status()
+
+    db.add(StockMovement(
+        id=str(uuid.uuid4()),
+        product_id=product_id,
+        branch_id=branch_id,
+        quantity_delta=quantity,
+        quantity_after=item.quantity_on_hand,
+        reason=StockMovementReason.GOODS_RECEIVED,
+        note=note,
+        user_id=current_user.id,
+    ))
+
     await db.commit()
 
     result = await db.execute(

@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useChatStore, type ChatMessage } from "@/stores/chatStore";
+import { API_BASE_URL } from "@/lib/api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
-
-// Swap these for your actual design tokens if they differ from your Tailwind config.
-// The widget previously carried its own private sage/olive/cream palette,
-// unrelated to the storefront tokens — it rendered as a dark green launcher on
-// a light grey page. These map onto the v2 system instead. Keys are unchanged
-// so every `COLORS.x` reference in this file keeps working.
+// Colour tokens for the widget, mapped onto the v2 storefront system. The
+// widget used to carry its own private sage/olive/cream palette, unrelated to
+// the app's tokens, which rendered as a dark green launcher on a light grey
+// page. Keys are unchanged so every `COLORS.x` reference below keeps working.
 const COLORS = {
     sage: "#2A2C33",
     sageDark: "#14151A",
@@ -20,7 +19,14 @@ const COLORS = {
     ink: "#14151A",
 };
 
+// The admin shell mounts its own, more capable assistant (AdminAIWidget) in
+// the bottom-left corner. This widget now lives in that same corner, so
+// rendering both on /admin would stack one launcher on top of the other.
+const HIDDEN_ON = ["/admin"];
+
 export default function ChatWidget() {
+    const pathname = usePathname();
+
     const {
         isOpen,
         messages,
@@ -32,6 +38,7 @@ export default function ChatWidget() {
         addMessage,
         setSessionId,
         setLoading,
+        clearChat,
     } = useChatStore();
 
     const [input, setInput] = useState("");
@@ -48,6 +55,7 @@ export default function ChatWidget() {
 
     // Avoid rendering persisted state before hydration to prevent SSR mismatch
     if (!_hasHydrated) return null;
+    if (HIDDEN_ON.some((prefix) => pathname?.startsWith(prefix))) return null;
 
     async function sendMessage() {
         const trimmed = input.trim();
@@ -59,14 +67,33 @@ export default function ChatWidget() {
         setLoading(true);
 
         try {
-            const res = await fetch(`${API_URL}/chat`, {
+            const res = await fetch(`${API_BASE_URL}/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ message: trimmed, session_id: sessionId }),
             });
 
             if (!res.ok) {
-                throw new Error(`Chat request failed: ${res.status}`);
+                // The backend returns a real explanation for the two failures
+                // users actually hit — 429 (too many messages) and 503 (no
+                // GROQ_API_KEY set on this deployment). Throwing the bare
+                // status meant both showed the same "couldn't connect" line,
+                // which sent people chasing a network problem that wasn't there.
+                let detail = "";
+                try {
+                    detail = (await res.json())?.detail ?? "";
+                } catch {
+                    // non-JSON error body — fall through to the generic message
+                }
+                addMessage({
+                    role: "assistant",
+                    content:
+                        detail ||
+                        (res.status === 429
+                            ? "That's a lot of messages at once — give it a moment and try again."
+                            : "Sorry, I couldn't reach the assistant just now — please try again in a moment."),
+                });
+                return;
             }
 
             const data: { reply: string; session_id: string } = await res.json();
@@ -90,7 +117,9 @@ export default function ChatWidget() {
     }
 
     return (
-        <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
+        // Bottom-LEFT corner, matching the admin assistant's position, so the
+        // assistant is always in the same place everywhere in the app.
+        <div className="fixed bottom-5 left-5 z-50 flex flex-col items-start gap-3">
             {isOpen && (
                 <div
                     className="flex h-[560px] w-[360px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl"
@@ -106,22 +135,37 @@ export default function ChatWidget() {
                                 className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold"
                                 style={{ backgroundColor: COLORS.gold, color: COLORS.ink }}
                             >
-                                S
+                                P
                             </div>
                             <div>
                                 <p className="text-sm font-semibold text-white">Printex Assistant</p>
                                 <p className="text-[11px] text-white/70">Usually replies instantly</p>
                             </div>
                         </div>
-                        <button
-                            onClick={toggleOpen}
-                            aria-label="Close chat"
-                            className="rounded-full p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
-                            </svg>
-                        </button>
+                        <div className="flex items-center gap-1">
+                            {messages.length > 0 && (
+                                <button
+                                    onClick={clearChat}
+                                    aria-label="Start a new chat"
+                                    title="Start a new chat"
+                                    className="rounded-full p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M3 12a9 9 0 0 1 15.5-6.2M21 12a9 9 0 0 1-15.5 6.2" strokeLinecap="round" />
+                                        <path d="M18 3v4h-4M6 21v-4h4" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                </button>
+                            )}
+                            <button
+                                onClick={toggleOpen}
+                                aria-label="Close chat"
+                                className="rounded-full p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
+                                </svg>
+                            </button>
+                        </div>
                     </div>
 
                     {/* Messages */}
@@ -131,7 +175,7 @@ export default function ChatWidget() {
                                 className="rounded-xl border px-3.5 py-3 text-sm leading-relaxed"
                                 style={{ borderColor: COLORS.creamDark, color: COLORS.ink }}
                             >
-                                Habari! 👋 Ask me about products, prices, or your order status.
+                                Habari! 👋 Ask me about parts, prices, or your order status.
                             </div>
                         )}
 
@@ -152,6 +196,7 @@ export default function ChatWidget() {
                                 onKeyDown={handleKeyDown}
                                 placeholder="Type a message..."
                                 rows={1}
+                                maxLength={1000}
                                 className="max-h-24 flex-1 resize-none rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2"
                                 style={{ borderColor: COLORS.creamDark, color: COLORS.ink }}
                             />
@@ -207,7 +252,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
             <div
-                className="max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed"
+                className="max-w-[80%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed"
                 style={
                     isUser
                         ? { backgroundColor: COLORS.sage, color: "white", borderBottomRightRadius: 4 }

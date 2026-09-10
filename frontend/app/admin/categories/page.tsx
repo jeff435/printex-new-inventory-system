@@ -38,7 +38,16 @@ export default function AdminCategoriesPage() {
         onError: (err: any) => toast.error((err.response?.data?.detail || err.response?.data?.message) || "Cannot delete — category may have products"),
     });
 
-    const cats = categories || [];
+    // Sorted here as well as in the API. The server orders the list, but this
+    // page also renders optimistically off a react-query cache that a fresh
+    // create lands in before the refetch completes — without this a
+    // just-added category would appear at the bottom for a moment and then
+    // jump. localeCompare so "Ä" sorts next to "A" rather than after "Z",
+    // and numeric so "Column 10" follows "Column 9" instead of "Column 1".
+    const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+    const cats = [...(categories || [])].sort((a: any, b: any) =>
+        collator.compare(a.name ?? "", b.name ?? "")
+    );
     const topLevel = cats.filter((c: any) => !c.parent_id);
 
     return (

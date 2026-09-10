@@ -42,7 +42,12 @@ class Category(Base):
 
     parent = relationship(
         "Category", remote_side="Category.id", back_populates="children")
-    children = relationship("Category", back_populates="parent")
+    # Sub-categories come back alphabetically too — the list endpoint can
+    # order the top level, but nested children are loaded by the relationship
+    # and would otherwise arrive in arbitrary order underneath a correctly
+    # sorted parent.
+    children = relationship(
+        "Category", back_populates="parent", order_by="Category.name")
     products = relationship("Product", back_populates="category")
 
 

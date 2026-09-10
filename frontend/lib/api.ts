@@ -44,6 +44,14 @@ function resolveApiUrl(): string {
 
 const API_URL = resolveApiUrl();
 
+// Exported so components that use a raw fetch() (the public ChatWidget) hit
+// exactly the same host as every axios call. Reading
+// process.env.NEXT_PUBLIC_API_URL directly in a component bypasses
+// resolveApiUrl() above, which is what made the chat widget call
+// http://localhost:8000 from every phone/laptop on the LAN while the rest
+// of the app worked fine.
+export const API_BASE_URL = API_URL;
+
 export const api = axios.create({
   baseURL: API_URL,
   headers: { "Content-Type": "application/json" },

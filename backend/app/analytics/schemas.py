@@ -3,6 +3,11 @@ from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
 
+# Every monetary field in this module is in WHOLE currency units — KSh
+# 12,400.00 is Decimal("12400.00"), never 1240000. The router converts once,
+# at the boundary (see the MONEY CONVENTION note in router.py). Consumers
+# (dashboards, Excel, PDF) format these figures; they never divide them.
+
 
 class StockMovementOut(BaseModel):
     id: str
@@ -24,7 +29,7 @@ class TopPartRow(BaseModel):
     sku: str
     part_number: Optional[str] = None
     quantity_moved: int
-    value_moved: Decimal
+    value_moved: Decimal   # whole KES
 
 
 class CategoryValueRow(BaseModel):
@@ -38,8 +43,8 @@ class CategoryValueRow(BaseModel):
     register_column: Optional[str] = None
     line_items: int
     total_qty: int
-    stock_value_usd: Decimal
-    potential_sales_kes: Decimal
+    stock_value_usd: Decimal      # whole USD
+    potential_sales_kes: Decimal  # whole KES
 
 
 class GoodsReceivedRow(BaseModel):
@@ -54,7 +59,7 @@ class GoodsReceivedRow(BaseModel):
     sku: str
     part_number: Optional[str] = None
     quantity_received: int
-    value_received: Decimal
+    value_received: Decimal  # whole KES
     last_received_at: Optional[datetime] = None
 
 
@@ -100,7 +105,7 @@ class StockStatusPart(BaseModel):
     quantity_on_hand: int
     reorder_point: int
     needs_pricing: bool
-    price_kes: Optional[int] = None
+    price_kes: Optional[Decimal] = None  # whole KES
 
 
 class StockStatusCategory(BaseModel):
@@ -123,5 +128,5 @@ class CustomerPurchaseRow(BaseModel):
     part_number: Optional[str] = None
     description: str
     total_quantity: Decimal
-    total_value_kes: int
+    total_value_kes: Decimal  # whole KES
     purchase_count: int

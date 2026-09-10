@@ -6,6 +6,12 @@ export interface ChatMessage {
     content: string;
 }
 
+// Cap what we keep in localStorage. Without this the transcript grows without
+// bound across sessions, and once it passes the ~5MB quota every subsequent
+// setItem throws — which in zustand's persist middleware surfaces as a failed
+// rehydrate on the next page load (see onRehydrateStorage below).
+const MAX_PERSISTED_MESSAGES = 50;
+
 interface ChatState {
     isOpen: boolean;
     messages: ChatMessage[];
@@ -52,11 +58,30 @@ export const useChatStore = create<ChatState>()(
         {
             name: "printex-chat",
             partialize: (state) => ({
-                messages: state.messages,
+                // Only the tail is persisted — see MAX_PERSISTED_MESSAGES.
+                messages: state.messages.slice(-MAX_PERSISTED_MESSAGES),
                 sessionId: state.sessionId,
             }),
-            onRehydrateStorage: () => (state) => {
-                state?.setHasHydrated(true);
+            // ChatWidget renders nothing until _hasHydrated flips true, so this
+            // callback MUST set it in every outcome. The previous version
+            // (`state?.setHasHydrated(true)`) only ran on the success path: if
+            // the stored JSON was corrupt or the storage quota had been blown,
+            // zustand invokes this with state === undefined plus an error, the
+            // optional chaining silently no-ops, _hasHydrated stays false
+            // forever and the chat button never appears at all — with nothing
+            // in the console to explain it. Setting state on the store
+            // directly covers both paths.
+            onRehydrateStorage: () => (state, error) => {
+                if (error) {
+                    console.warn("Chat history couldn't be restored; starting a fresh session.", error);
+                    try {
+                        window.localStorage.removeItem("printex-chat");
+                    } catch {
+                        // private mode / storage disabled — nothing to clean up
+                    }
+                }
+                // Not `state?.setHasHydrated(...)` — on the error path there is no state.
+                useChatStore.setState({ _hasHydrated: true });
             },
         }
     )

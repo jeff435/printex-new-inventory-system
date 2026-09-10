@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, aliased
 from typing import Optional, List
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -30,6 +30,45 @@ from app.analytics.pdf import (
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
+# ── MONEY CONVENTION FOR THIS ROUTER ─────────────────────────────────────────
+# Every monetary figure this router returns is in WHOLE currency units
+# (KSh 12,400.00 -> Decimal("12400.00")), never minor units.
+#
+# This is the fix for the dashboards disagreeing with each other. The database
+# deliberately mixes two conventions:
+#   * Product.price_kes / buying_price_usd / ProformaInvoice.total_kes
+#       -> INTEGER cents
+#   * Purchase.total_amount / Expense.amount  (Numeric(12,2))
+#       -> whole shillings
+# The old code passed both straight through untouched, so on one and the same
+# screen "Total Stock Value" was 100x too large while "Expenses" beside it was
+# right, and /admin (which divided everything by 100) and
+# /admin/directors/analytics (which divided nothing) showed different numbers
+# for the identical field. Converting once, here at the boundary, means every
+# consumer — the two dashboards, the Excel workbooks and the PDFs — reads the
+# same figure and none of them do arithmetic on it.
+#
+# Anything added to this router must go through _kes()/_usd() or already be in
+# whole units. Never return a raw *_kes / *_usd integer column.
+_CENTS = Decimal(100)
+_2DP = Decimal("0.01")
+
+
+def _money(cents) -> Decimal:
+    """Integer minor units -> whole units, rounded to 2dp exactly once.
+
+    Rounded here rather than in the UI so that a figure can't come out as
+    12399.999999 in one export and 12400.00 in another.
+    """
+    return (Decimal(cents or 0) / _CENTS).quantize(_2DP)
+
+
+def _whole(amount) -> Decimal:
+    """A column already stored in whole units — normalise to 2dp so it
+    formats identically to a converted one."""
+    return Decimal(amount or 0).quantize(_2DP)
+
+
 # Sent/accepted-but-not-yet-converted PIs represent money the business is
 # still waiting to collect — this is what "pending payments" means anywhere
 # in this router, since Printex has no separate customer-payments ledger.
@@ -53,18 +92,49 @@ async def get_summary(
 ):
     total_parts = (await db.execute(select(func.count(Product.id)))).scalar() or 0
 
+    # Count DISTINCT PRODUCTS, not inventory rows. inventory_items holds one
+    # row per product per branch, so counting rows meant a part that is low on
+    # three branches was reported as three low-stock parts — and the dashboard
+    # then divided that inflated count by the (per-product) catalogue total to
+    # get "% of catalogue affected", which could sail past 100%. These two
+    # numbers are compared against total_parts, so they have to be counted in
+    # the same unit as total_parts.
     low_stock = (await db.execute(
-        select(func.count(InventoryItem.id)).where(
+        select(func.count(func.distinct(InventoryItem.product_id))).where(
             InventoryItem.stock_status == StockStatus.LOW_STOCK)
     )).scalar() or 0
 
     out_of_stock = (await db.execute(
-        select(func.count(InventoryItem.id)).where(
+        select(func.count(func.distinct(InventoryItem.product_id))).where(
             InventoryItem.stock_status == StockStatus.OUT_OF_STOCK)
     )).scalar() or 0
 
+    # A part sitting in both buckets across different branches would otherwise
+    # be counted twice over; low stock is the softer signal, so out-of-stock
+    # wins and the two figures stay addable.
+    # Aliased: both halves hit inventory_items, and without a distinct alias
+    # SQLAlchemy auto-correlates the inner SELECT against the outer one, drops
+    # its FROM clause and silently returns the wrong count.
+    _oos = aliased(InventoryItem)
+    both = (await db.execute(
+        select(func.count(func.distinct(InventoryItem.product_id))).where(
+            InventoryItem.stock_status == StockStatus.LOW_STOCK,
+            InventoryItem.product_id.in_(
+                select(_oos.product_id).where(
+                    _oos.stock_status == StockStatus.OUT_OF_STOCK)
+            ),
+        )
+    )).scalar() or 0
+    low_stock = max(0, low_stock - both)
+
+    # greatest(quantity_on_hand, 0): a negative on-hand figure is a data fault,
+    # not negative money, and letting it through silently reduced the total
+    # stock value of every other part on the shelf.
     stock_value_q = select(
-        func.coalesce(func.sum(InventoryItem.quantity_on_hand * Product.price_kes), 0)
+        func.coalesce(
+            func.sum(
+                func.greatest(InventoryItem.quantity_on_hand, 0) * Product.price_kes
+            ), 0)
     ).join(Product, InventoryItem.product_id == Product.id)
     total_stock_value = (await db.execute(stock_value_q)).scalar() or 0
 
@@ -101,23 +171,25 @@ async def get_summary(
     )
     manual_qty, manual_value = (await db.execute(manual_add_q)).one()
 
+    # Fall back to created_at only where the real event date was never
+    # recorded. A received PO whose received_at is null used to vanish from
+    # every date-filtered range entirely (a NULL fails both >= and <=), so the
+    # 30D purchases figure silently under-reported.
     purchases_q = _period_filter(
         select(func.coalesce(func.sum(Purchase.total_amount), 0)).where(
             Purchase.status == PurchaseStatus.RECEIVED),
-        Purchase.received_at, start, end,
+        func.coalesce(Purchase.received_at, Purchase.created_at), start, end,
     )
     total_purchases_value = (await db.execute(purchases_q)).scalar() or 0
 
+    # incurred_at, not created_at: last month's rent keyed in today belongs to
+    # last month. Filtering on the row's creation timestamp dropped it into
+    # whichever period the data-entry happened to land in.
     expenses_q = _period_filter(
         select(func.coalesce(func.sum(Expense.amount), 0)),
-        Expense.created_at, start, end,
+        func.coalesce(Expense.incurred_at, Expense.created_at), start, end,
     )
     total_expenses = (await db.execute(expenses_q)).scalar() or 0
-
-    # Net movement = stock going out minus stock coming in, from any source
-    # (a received Purchase Order OR a manual "+" add on Inventory) — so a
-    # product added the manual way is no longer invisible to this figure.
-    net_movement = Decimal(sale_value or 0) - Decimal(gr_value or 0) - Decimal(manual_value or 0)
 
     pending_q = select(
         func.count(ProformaInvoice.id),
@@ -125,24 +197,38 @@ async def get_summary(
     ).where(ProformaInvoice.status.in_(_PENDING_PI_STATUSES))
     pending_count, pending_value = (await db.execute(pending_q)).one()
 
+    # Everything below is converted to whole shillings exactly once — see the
+    # MONEY CONVENTION note at the top of this file.
+    goods_received_value = _money(gr_value)
+    manual_added_value = _money(manual_value)
+    sales_value = _money(sale_value)
+
+    # Net movement = stock going out minus stock coming in, from any source
+    # (a received Purchase Order OR a manual "+" add on Inventory) — so a
+    # product added the manual way is no longer invisible to this figure.
+    # Computed from the already-converted figures so it can never disagree
+    # with the three cards it is derived from.
+    net_movement = (sales_value - goods_received_value - manual_added_value).quantize(_2DP)
+
     return AnalyticsSummary(
         period_start=start,
         period_end=end,
         total_parts=total_parts,
         low_stock_parts=low_stock,
         out_of_stock_parts=out_of_stock,
-        total_stock_value=total_stock_value,
-        goods_received_value=gr_value or 0,
+        total_stock_value=_money(total_stock_value),
+        goods_received_value=goods_received_value,
         goods_received_qty=gr_qty or 0,
-        manual_stock_added_value=manual_value or 0,
+        manual_stock_added_value=manual_added_value,
         manual_stock_added_qty=manual_qty or 0,
-        sales_value=sale_value or 0,
+        sales_value=sales_value,
         sales_qty=sale_qty or 0,
-        total_expenses=total_expenses,
-        total_purchases_value=total_purchases_value,
+        # Already Numeric(12,2) in whole shillings — normalised, not divided.
+        total_expenses=_whole(total_expenses),
+        total_purchases_value=_whole(total_purchases_value),
         net_movement_value=net_movement,
         pending_payments_count=pending_count or 0,
-        pending_payments_value=Decimal(pending_value or 0),
+        pending_payments_value=_money(pending_value),
     )
 
 
@@ -207,13 +293,19 @@ async def get_top_parts(
         Product.id, Product.name, Product.sku, Product.part_number
     )
     q = _period_filter(q, StockMovement.created_at, start, end)
-    q = q.order_by(func.sum(func.abs(StockMovement.quantity_delta)).desc()).limit(limit)
+    # Secondary sort key: without it, parts tied on quantity came back in
+    # whatever order the planner felt like, so the same range re-queried a
+    # moment later could reshuffle the chart's bars for no visible reason.
+    q = q.order_by(
+        func.sum(func.abs(StockMovement.quantity_delta)).desc(),
+        Product.name.asc(),
+    ).limit(limit)
 
     result = await db.execute(q)
     return [
         TopPartRow(product_id=r.id, product_name=r.name, sku=r.sku,
                    part_number=r.part_number,
-                   quantity_moved=r.qty or 0, value_moved=r.value or 0)
+                   quantity_moved=r.qty or 0, value_moved=_money(r.value))
         for r in result.all()
     ]
 
@@ -241,14 +333,17 @@ async def get_goods_received(
          (StockMovement.quantity_delta > 0))
     ).group_by(Product.id, Product.name, Product.sku, Product.part_number)
     q = _period_filter(q, StockMovement.created_at, start, end)
-    q = q.order_by(func.max(StockMovement.created_at).desc()).limit(limit)
+    q = q.order_by(
+        func.max(StockMovement.created_at).desc(),
+        Product.name.asc(),
+    ).limit(limit)
 
     result = await db.execute(q)
     return [
         GoodsReceivedRow(
             product_id=r.id, product_name=r.name, sku=r.sku,
             part_number=r.part_number,
-            quantity_received=r.qty or 0, value_received=r.value or 0,
+            quantity_received=r.qty or 0, value_received=_money(r.value),
             last_received_at=r.last_received_at,
         )
         for r in result.all()
@@ -298,21 +393,38 @@ async def get_stock_value_by_category(
     stock value in USD, potential sales in KES. Computed live from
     InventoryItem so it always reflects today's stock, not the day the
     register was transcribed."""
+    # Driven from Product, not Category, with both joins OUTER. The previous
+    # inner-join version quietly dropped two whole classes of part:
+    #   * anything with no category — so this table's KES column could not be
+    #     reconciled against "Total Stock Value" on the same screen, and the
+    #     gap was invisible because nothing said rows were missing;
+    #   * anything with no inventory_items row yet — a part that exists in the
+    #     catalogue but has never been stocked simply wasn't a line item.
+    # Both now appear, the second at qty 0, so the column totals tie out.
+    qty = func.greatest(func.coalesce(InventoryItem.quantity_on_hand, 0), 0)
     q = select(
-        Category.id, Category.name,
+        Category.id.label("category_id"),
+        func.coalesce(Category.name, "Uncategorised").label("category_name"),
         func.count(func.distinct(Product.id)).label("line_items"),
-        func.coalesce(func.sum(InventoryItem.quantity_on_hand), 0).label("qty"),
+        func.coalesce(func.sum(qty), 0).label("qty"),
         func.coalesce(
-            func.sum(InventoryItem.quantity_on_hand * Product.buying_price_usd), 0
+            func.sum(qty * func.coalesce(Product.buying_price_usd, 0)), 0
         ).label("stock_value_usd"),
         func.coalesce(
-            func.sum(InventoryItem.quantity_on_hand * Product.price_kes), 0
+            func.sum(qty * func.coalesce(Product.price_kes, 0)), 0
         ).label("potential_sales_kes"),
-    ).select_from(Category).join(
-        Product, Product.category_id == Category.id
-    ).join(
+    ).select_from(Product).outerjoin(
+        Category, Product.category_id == Category.id
+    ).outerjoin(
         InventoryItem, InventoryItem.product_id == Product.id
-    ).group_by(Category.id, Category.name, Category.sort_order).order_by(Category.sort_order)
+    ).group_by(
+        Category.id, Category.name
+    ).order_by(
+        # Alphabetical, and it stays alphabetical when a new category is
+        # added. sort_order defaults to 0 for every row, so ordering by it
+        # alone left the sequence up to the planner.
+        func.coalesce(Category.name, "Uncategorised").asc()
+    )
 
     result = await db.execute(q)
     rows = []
@@ -320,12 +432,13 @@ async def get_stock_value_by_category(
         # register_column is a single letter kept on the product, not the
         # category — pull it back out of the category name's "A — " prefix
         # so the export tables can show it as its own column.
-        code = r.name.split(" — ")[0] if " — " in r.name else None
+        name = r.category_name
+        code = name.split(" — ")[0] if " — " in name else None
         rows.append(CategoryValueRow(
-            category_id=r.id, category_name=r.name, register_column=code,
+            category_id=r.category_id, category_name=name, register_column=code,
             line_items=r.line_items, total_qty=r.qty,
-            stock_value_usd=Decimal(r.stock_value_usd) / 100,
-            potential_sales_kes=Decimal(r.potential_sales_kes) / 100,
+            stock_value_usd=_money(r.stock_value_usd),
+            potential_sales_kes=_money(r.potential_sales_kes),
         ))
     return rows
 
@@ -410,7 +523,7 @@ async def get_stock_status(
             quantity_on_hand=item.quantity_on_hand,
             reorder_point=item.reorder_point,
             needs_pricing=product.needs_pricing,
-            price_kes=product.price_kes if show_price else None,
+            price_kes=_money(product.price_kes) if show_price else None,
         )
 
         if item.stock_status == StockStatus.OUT_OF_STOCK:
@@ -507,7 +620,7 @@ async def get_customer_purchases(
             part_number=r.part_number,
             description=r.description,
             total_quantity=r.qty,
-            total_value_kes=int(r.value or 0),
+            total_value_kes=_money(r.value),
             purchase_count=r.purchase_count,
         )
         for r in result.all()

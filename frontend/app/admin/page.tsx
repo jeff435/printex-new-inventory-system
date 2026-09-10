@@ -38,8 +38,25 @@ const STATUS_CONFIG: Record<string, StatusCfg> = {
     cancelled: { label: "Cancelled", icon: XCircle, color: "text-red-600 bg-red-50" },
 };
 
-function kes(cents: number) {
-    return `KSh ${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// TWO formatters on purpose, because this page reads from two APIs that use
+// two different conventions, and using the wrong one is exactly what made the
+// same figure show up differently here and on /admin/directors/analytics.
+//
+//   kes()          -> /analytics/* responses. Already whole shillings; the
+//                     analytics router converts once at the boundary (see the
+//                     MONEY CONVENTION note in backend/app/analytics/router.py).
+//   kesFromCents() -> raw ORM fields read straight off other endpoints
+//                     (Order.total_kes, Product.price_kes), which are still
+//                     integer cents.
+//
+// If you are formatting something that came out of analyticsApi, it is kes().
+function kes(amount: number | string | undefined | null) {
+    const n = Number(amount ?? 0);
+    return `KSh ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function kesFromCents(cents: number | undefined | null) {
+    return kes(Number(cents ?? 0) / 100);
 }
 
 // ── Export button row, reused by the stock-status and customer-purchases cards ──
@@ -267,7 +284,7 @@ function AnalyticsSummaryCard({ summary }: { summary: any }) {
         ["Sales", `${summary.sales_qty} units · ${kes(summary.sales_value)}`],
         ["Total expenses", kes(summary.total_expenses)],
         ["Total purchases (from suppliers)", kes(summary.total_purchases_value)],
-        ["Net movement (sales − goods received)", kes(summary.net_movement_value)],
+        ["Net movement (sales − goods received − manual stock added)", kes(summary.net_movement_value)],
     ];
 
     return (
@@ -375,7 +392,7 @@ export default function AdminOverviewPage() {
                         />
                         <StatCard
                             label="Revenue"
-                            value={`KES ${(totalRevenue / 100).toLocaleString()}`}
+                            value={kesFromCents(totalRevenue)}
                             icon={TrendingUp}
                             color="bg-green-600"
                             sub="From delivered orders"
@@ -456,7 +473,7 @@ export default function AdminOverviewPage() {
                                             </div>
                                             <div className="flex items-center gap-3">
                                                 <p className="text-sm font-bold text-gray-900">
-                                                    KES {(order.total_kes / 100).toLocaleString()}
+                                                    {kesFromCents(order.total_kes)}
                                                 </p>
                                                 {cfg && (
                                                     <span className={`text-xs font-semibold px-2 py-1 rounded-full ${cfg.color}`}>

@@ -112,7 +112,9 @@ def render_stock_status_pdf(report) -> bytes:
                 ]
                 if show_price:
                     row.append(Paragraph(
-                        f"{p.price_kes/100:,.2f}" if p.price_kes is not None else "—", num))
+                        # Whole shillings already — see the money convention
+                        # note in analytics/router.py.
+                        f"{float(p.price_kes):,.2f}" if p.price_kes is not None else "—", num))
                 rows.append(row)
         if not any_rows:
             story.append(Paragraph("None.", styles["Normal"]))
@@ -273,7 +275,7 @@ def render_customer_purchases_pdf(rows) -> bytes:
             Paragraph(_esc(getattr(r, "part_number", None) or "—"), cell),
             Paragraph(_esc(r.description), cell),
             Paragraph(qty, num),
-            Paragraph(f"{r.total_value_kes/100:,.2f}", num),
+            Paragraph(f"{float(r.total_value_kes):,.2f}", num),
             Paragraph(str(r.purchase_count), num),
         ])
     if len(data) == 1:

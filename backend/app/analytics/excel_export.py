@@ -218,7 +218,10 @@ def render_stock_status_excel(report, customer_rows: list | None = None) -> byte
             for p in cat.out_of_stock:
                 row = [cat.category_name, p.name, p.sku, p.part_number or "", p.quantity_on_hand, p.reorder_point]
                 if show_price:
-                    row.append(round(p.price_kes / 100, 2) if p.price_kes is not None else "")
+                    # Already whole shillings — the analytics router converts
+                    # once at the boundary. Dividing again here would show a
+                    # KSh 12,400 part as KSh 124.00.
+                    row.append(float(p.price_kes) if p.price_kes is not None else "")
                 ws.append(row)
         for col, width in zip("ABCDEFG", (20, 34, 14, 16, 12, 14, 14)):
             ws.column_dimensions[col].width = width
@@ -230,7 +233,7 @@ def render_stock_status_excel(report, customer_rows: list | None = None) -> byte
             for p in cat.low_stock:
                 row = [cat.category_name, p.name, p.sku, p.part_number or "", p.quantity_on_hand, p.reorder_point]
                 if show_price:
-                    row.append(round(p.price_kes / 100, 2) if p.price_kes is not None else "")
+                    row.append(float(p.price_kes) if p.price_kes is not None else "")
                 ws2.append(row)
         for col, width in zip("ABCDEFG", (20, 34, 14, 16, 12, 14, 14)):
             ws2.column_dimensions[col].width = width
@@ -247,7 +250,7 @@ def render_stock_status_excel(report, customer_rows: list | None = None) -> byte
             ws3.append([
                 r.customer_name, getattr(r, "part_number", None) or "",
                 r.description, float(r.total_quantity),
-                round(r.total_value_kes / 100, 2), r.purchase_count,
+                float(r.total_value_kes), r.purchase_count,
             ])
         for col, width in zip("ABCDEF", (28, 20, 40, 12, 18, 16)):
             ws3.column_dimensions[col].width = width
